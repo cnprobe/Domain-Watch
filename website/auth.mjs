@@ -103,6 +103,12 @@ function envFlag(value) {
   return ["1", "true", "yes", "on", "y"].includes(String(value || "").trim().toLowerCase());
 }
 
+/** 与 server.mjs 的 envBoolean 语义一致：未设置时返回 fallback */
+function envBoolean(value, fallback) {
+  if (value === undefined || value === null || String(value).trim() === "") return fallback;
+  return envFlag(value);
+}
+
 export class SettingsStore {
   constructor({ dataDir, env = process.env, logger = console }) {
     if (!dataDir) throw fail("invalid_data_dir", "dataDir is required");
@@ -199,6 +205,57 @@ export class SettingsStore {
       chatId: String(this.env.TELEGRAM_CHAT_ID || "").trim(),
       apiBase: String(this.env.TELEGRAM_API_BASE || "https://api.telegram.org").trim(),
     };
+  }
+
+  /** .env 中的监控参数，作为首次启动的默认值 */
+  readMonitorFromEnv() {
+    const remindDays = Number(this.env.REMIND_DAYS);
+    return {
+      domains: String(this.env.DOMAINS || ""),
+      remindDays: Number.isFinite(remindDays) ? remindDays : 30,
+      dailyRemind: envBoolean(this.env.DAILY_REMIND, true),
+      backorderNotify: envBoolean(this.env.BACKORDER_NOTIFY, true),
+      checkTime: String(this.env.CHECK_TIME || "09:00").trim(),
+      runOnStartup: envBoolean(this.env.RUN_ON_STARTUP, false),
+    };
+  }
+
+  /** 生效的监控配置：面板保存过就用面板的，否则用 .env */
+  async getMonitorSettings() {
+    const stored = this.data.monitor;
+    if (!stored) return { ...this.readMonitorFromEnv(), source: "env" };
+    return {
+      domains: String(stored.domains ?? ""),
+      remindDays: Number(stored.remindDays ?? 30),
+      dailyRemind: stored.dailyRemind !== false,
+      backorderNotify: stored.backorderNotify !== false,
+      checkTime: String(stored.checkTime ?? "09:00"),
+      runOnStartup: stored.runOnStartup === true,
+      source: "panel",
+      updatedAt: stored.updatedAt || null,
+    };
+  }
+
+  async setMonitorSettings(next) {
+    const remindDays = Number(next.remindDays ?? 30);
+    this.data.monitor = {
+      domains: String(next.domains ?? ""),
+      remindDays: Number.isFinite(remindDays) ? Math.max(0, Math.min(365, Math.floor(remindDays))) : 30,
+      dailyRemind: next.dailyRemind !== false,
+      backorderNotify: next.backorderNotify !== false,
+      checkTime: String(next.checkTime ?? "09:00"),
+      runOnStartup: next.runOnStartup === true,
+      updatedAt: new Date().toISOString(),
+    };
+    await this.save();
+    return this.getMonitorSettings();
+  }
+
+  /** 丢弃面板配置，回到 .env 中的值 */
+  async resetMonitorSettings() {
+    delete this.data.monitor;
+    await this.save();
+    return this.getMonitorSettings();
   }
 
   encodeTelegram({ token, chatId, apiBase, enabled = true }) {

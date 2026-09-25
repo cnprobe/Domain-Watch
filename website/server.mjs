@@ -3,7 +3,7 @@ import { readFile, mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { createDomainWatch } from "./domain-watch.mjs";
-import { createMonitor, TelegramNotifier } from "./monitor.mjs";
+import { createMonitor, isValidCheckTime, REMIND_DAYS_MAX, REMIND_DAYS_MIN, DOMAINS_MAX_LENGTH, TelegramNotifier } from "./monitor.mjs";
 import { SettingsStore, clearSessionCookie, fail, parseCookies, sessionCookie } from "./auth.mjs";
 
 const rootDir = process.cwd();
@@ -102,6 +102,42 @@ function statusForCheckResult(result) {
   return 500;
 }
 
+/** 校验并规范化 Telegram Bot API 地址，避免粘贴错误变成难懂的 ENOTFOUND */
+function normalizeTelegramApiBase(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  if (/\s/.test(text)) {
+    throw fail("invalid_telegram_api_base", "API 地址不能包含空格，请检查是否粘贴完整");
+  }
+  let url;
+  try {
+    url = new URL(text);
+  } catch {
+    throw fail("invalid_telegram_api_base", "API 地址格式不正确，应形如 https://api.telegram.org");
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw fail("invalid_telegram_api_base", "API 地址必须以 http:// 或 https:// 开头");
+  }
+  if (url.username || url.password) {
+    throw fail("invalid_telegram_api_base", "API 地址不能包含用户名或密码");
+  }
+  if (url.search || url.hash) {
+    throw fail("invalid_telegram_api_base", "API 地址不能包含查询参数或 # 片段");
+  }
+  // 粘贴错位会留下第二段协议，例如 "https://api.telegrhttps://api.telegram.org/bot..."
+  if (text.slice(text.indexOf("://") + 3).includes("://")) {
+    throw fail("invalid_telegram_api_base", "API 地址中出现了两段协议，请检查是否粘贴错位（官方地址：https://api.telegram.org）");
+  }
+  // 主机名必须是完整域名或 localhost
+  if (!url.hostname.includes(".") && url.hostname !== "localhost") {
+    throw fail("invalid_telegram_api_base", `API 地址的主机名 "${url.hostname}" 不完整（官方地址：https://api.telegram.org）`);
+  }
+  if (/\.\./.test(url.hostname) || url.hostname.startsWith(".") || url.hostname.endsWith(".")) {
+    throw fail("invalid_telegram_api_base", `API 地址的主机名 "${url.hostname}" 格式不正确，请检查是否粘贴错位`);
+  }
+  return url.toString().replace(/\/+$/, "");
+}
+
 function redirect(res, location) {
   res.statusCode = 302;
   res.setHeader("Location", location);
@@ -160,19 +196,12 @@ async function main() {
     console.log("[domain-watch] ================================================");
   }
 
-  const config = {
-    domains: process.env.DOMAINS || "",
-    remindDays: process.env.REMIND_DAYS ?? 30,
-    dailyRemind: envBoolean(process.env.DAILY_REMIND, true),
-    backorderNotify: envBoolean(process.env.BACKORDER_NOTIFY, true),
-    checkTime: process.env.CHECK_TIME || "09:00",
-    runOnStartup: envBoolean(process.env.RUN_ON_STARTUP, false),
-  };
-
   const domainWatch = createDomainWatch({ dataDir });
   const telegramConfig = await settingsStore.getTelegramConfig();
   const notifier = new TelegramNotifier(telegramConfig);
-  const monitor = createMonitor({ config, domainWatch, notifier, dataDir });
+  // 监控参数优先使用设置面板保存的值，没有保存过才用 .env
+  const monitorConfig = await settingsStore.getMonitorSettings();
+  const monitor = createMonitor({ config: monitorConfig, domainWatch, notifier, dataDir });
   const legacyAdminToken = String(process.env.ADMIN_TOKEN || "").trim();
   const loginAttempts = new Map();
   let publicHtml = { value: null };
@@ -355,7 +384,65 @@ async function main() {
     if (req.method === "GET" && url.pathname === "/api/settings") {
       const auth = requireApiAuth(req, res);
       if (!auth) return;
-      sendJson(res, 200, { ok: true, settings: await settingsStore.publicSettings(), monitor: monitor.status() });
+      sendJson(res, 200, {
+        ok: true,
+        settings: await settingsStore.publicSettings(),
+        monitor: monitor.status(),
+        monitorConfig: await settingsStore.getMonitorSettings(),
+      });
+      return;
+    }
+
+    if (req.method === "PUT" && url.pathname === "/api/settings/monitor") {
+      const auth = requireApiAuth(req, res);
+      if (!auth || !requireSameOriginForSession(req, res, auth)) return;
+      try {
+        const body = await readJsonBody(req);
+
+        if (body.reset === true) {
+          const restored = await settingsStore.resetMonitorSettings();
+          const { previous, current } = monitor.applyConfig({ ...restored, source: "env" });
+          console.log(`[domain-watch] 监控配置已恢复为 .env：${previous.domains || "未配置"} -> ${current.domains || "未配置"}`);
+          sendJson(res, 200, { ok: true, monitorConfig: restored, monitor: monitor.status(), message: "已恢复为 .env 中的配置" });
+          return;
+        }
+
+        const domains = String(body.domains ?? "");
+        if (domains.length > DOMAINS_MAX_LENGTH) {
+          throw fail("invalid_domains", `监控域名内容过长（最多 ${DOMAINS_MAX_LENGTH} 字符）`);
+        }
+        const validDomains = domainWatch.parseDomains(domains);
+        if (domains.trim() && validDomains.length === 0) {
+          throw fail("invalid_domains", "没有解析到有效域名，请用逗号或换行分隔，例如 example.com");
+        }
+
+        const remindDays = Number(body.remindDays);
+        if (!Number.isFinite(remindDays)) {
+          throw fail("invalid_remind_days", "提前提醒天数必须是数字");
+        }
+        const clampedRemindDays = Math.max(REMIND_DAYS_MIN, Math.min(REMIND_DAYS_MAX, Math.floor(remindDays)));
+
+        if (!isValidCheckTime(body.checkTime)) {
+          throw fail("invalid_check_time", "每日检查时间格式必须是 HH:mm（24 小时制），例如 09:00");
+        }
+
+        const saved = await settingsStore.setMonitorSettings({
+          domains,
+          remindDays: clampedRemindDays,
+          dailyRemind: body.dailyRemind !== false,
+          backorderNotify: body.backorderNotify !== false,
+          checkTime: body.checkTime,
+          runOnStartup: body.runOnStartup === true,
+        });
+        const { current } = monitor.applyConfig({ ...saved, source: "panel" });
+        console.log(
+          `[domain-watch] 监控配置已更新（设置面板）: 域名 ${saved.domains || "未配置"}，` +
+            `检查时间 ${current.checkTime}，提醒天数 ${current.remindDays}`
+        );
+        sendJson(res, 200, { ok: true, monitorConfig: saved, monitor: monitor.status(), message: "监控配置已保存并立即生效" });
+      } catch (error) {
+        sendJson(res, error?.code === "invalid_credentials" ? 403 : 400, errorBody(error));
+      }
       return;
     }
 
@@ -364,11 +451,7 @@ async function main() {
       if (!auth || !requireSameOriginForSession(req, res, auth)) return;
       try {
         const body = await readJsonBody(req);
-        if (!(await settingsStore.authenticate(settingsStore.username, body.currentPassword))) {
-          sendJson(res, 403, errorBody({ code: "invalid_credentials", message: "当前密码不正确" }));
-          return;
-        }
-        const next = await settingsStore.setTelegram(body);
+        const next = await settingsStore.setTelegram({ ...body, apiBase: normalizeTelegramApiBase(body.apiBase) });
         notifier.update(next);
         sendJson(res, 200, { ok: true, settings: await settingsStore.publicSettings() });
       } catch (error) {
@@ -467,8 +550,11 @@ async function main() {
   server.listen(port, host, () => {
     console.log(`[domain-watch] website listening on http://${host}:${port}`);
     console.log(`[domain-watch] data directory: ${dataDir}`);
-    console.log(`[domain-watch] Telegram notifications: ${notifier.configured ? "enabled" : "disabled"}`);
+    console.log(`[domain-watch] Telegram notifications: ${notifier.configured ? `enabled (${notifier.apiBase})` : "disabled"}`);
     console.log(`[domain-watch] public query: ${publicQuery ? "enabled" : "disabled"}`);
+    const applied = monitor.currentConfig();
+    console.log(`[domain-watch] 监控配置来源: ${applied.source === "panel" ? "设置面板" : ".env"}（可在设置页面修改并立即生效）`);
+    console.log(`[domain-watch] 监控域名: ${applied.domains || "未配置"}，检查时间 ${applied.checkTime}，提醒天数 ${applied.remindDays}`);
   });
 
   const shutdown = () => {

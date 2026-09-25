@@ -3,10 +3,20 @@ import { join } from "node:path";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_CHECK_TIME = "09:00";
+const CHECK_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+/** 严格校验 HH:mm：设置面板用它拒绝非法输入，而不是静默回退到 09:00 */
+export function isValidCheckTime(value) {
+  return CHECK_TIME_PATTERN.test(String(value ?? "").trim());
+}
+
+export const REMIND_DAYS_MIN = 0;
+export const REMIND_DAYS_MAX = 365;
+export const DOMAINS_MAX_LENGTH = 4000;
 
 function parseCheckTime(value) {
   const text = String(value || "").trim() || DEFAULT_CHECK_TIME;
-  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(text);
+  const match = CHECK_TIME_PATTERN.exec(text);
   return match ? { hour: Number(match[1]), minute: Number(match[2]), text } : { hour: 9, minute: 0, text: DEFAULT_CHECK_TIME };
 }
 
@@ -31,6 +41,15 @@ function describeCause(error) {
     if (codes.length > 0) return ` (${codes.join(", ")})`;
   }
   return cause.message ? ` (${cause.message})` : "";
+}
+
+/** 取出 API 地址里的主机名，用于报错时提示用户检查设置 */
+function hostOf(apiBase) {
+  try {
+    return new URL(String(apiBase || "")).host || String(apiBase || "");
+  } catch {
+    return String(apiBase || "");
+  }
 }
 
 function truncate(value, max = 4000) {
@@ -110,7 +129,11 @@ export class TelegramNotifier {
       }
       if (error?.code) throw error;
       // fetch 的网络层失败（DNS/连接/证书）是无 code 的 TypeError，这里补一个可归类的错误码
-      const failure = new Error(`Telegram API 网络请求失败${describeCause(error)}: ${messageOf(error)}`);
+      const reason = describeCause(error);
+      const hint = /ENOTFOUND|EAI_AGAIN/i.test(reason)
+        ? `，无法解析主机 ${hostOf(this.apiBase)}，请在设置页面确认 API 地址是否正确`
+        : "";
+      const failure = new Error(`Telegram API 网络请求失败${reason}${hint}: ${messageOf(error)}`);
       failure.code = "telegram_network_error";
       failure.cause = error;
       throw failure;
@@ -122,12 +145,15 @@ export class TelegramNotifier {
 
 export function createMonitor({ config, domainWatch, notifier, dataDir, logger = console }) {
   const statePath = join(dataDir, "reminders.json");
-  const checkTime = parseCheckTime(config.checkTime);
-  const remindDays = domainWatch.normalizeRemindDays(config.remindDays);
-  const domains = domainWatch.parseDomains(config.domains || "");
-  const dailyRemind = config.dailyRemind !== false;
-  const backorderNotify = config.backorderNotify !== false;
-  const runOnStartup = config.runOnStartup === true;
+
+  // 这些值可以在运行时通过 applyConfig() 热更新（设置面板保存后立即生效）
+  let checkTime = parseCheckTime(config.checkTime);
+  let remindDays = domainWatch.normalizeRemindDays(config.remindDays);
+  let domains = domainWatch.parseDomains(config.domains || "");
+  let dailyRemind = config.dailyRemind !== false;
+  let backorderNotify = config.backorderNotify !== false;
+  let runOnStartup = config.runOnStartup === true;
+  let configSource = config.source === "panel" ? "panel" : "env";
 
   let state = null;
   let running = false;
@@ -277,6 +303,41 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, logger =
     return now.getHours() === checkTime.hour && now.getMinutes() === checkTime.minute;
   }
 
+  /**
+   * 热更新监控配置：设置面板保存后调用，无需重启容器。
+   * 未传入的字段保持原值；检查时间变化时重置当日去重键，
+   * 这样把时间改成当前分钟就能在下一次轮询立刻跑一次检查。
+   */
+  function applyConfig(next = {}) {
+    const previous = currentConfig();
+
+    if (next.domains !== undefined) domains = domainWatch.parseDomains(String(next.domains || ""));
+    if (next.remindDays !== undefined) remindDays = domainWatch.normalizeRemindDays(next.remindDays);
+    if (next.dailyRemind !== undefined) dailyRemind = next.dailyRemind !== false;
+    if (next.backorderNotify !== undefined) backorderNotify = next.backorderNotify !== false;
+    if (next.runOnStartup !== undefined) runOnStartup = next.runOnStartup === true;
+    if (next.checkTime !== undefined) {
+      checkTime = parseCheckTime(next.checkTime);
+      if (checkTime.text !== previous.checkTime) lastScheduledKey = "";
+    }
+    if (next.source !== undefined) configSource = next.source === "panel" ? "panel" : "env";
+
+    return { previous, current: currentConfig() };
+  }
+
+  /** 当前生效的配置（可直接回显到设置面板） */
+  function currentConfig() {
+    return {
+      domains: domains.join(","),
+      remindDays,
+      checkTime: checkTime.text,
+      dailyRemind,
+      backorderNotify,
+      runOnStartup,
+      source: configSource,
+    };
+  }
+
   async function runScheduledCheck() {
     const now = new Date();
     const key = localDayKey(now);
@@ -350,6 +411,8 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, logger =
       ok: summary.failed === 0,
       checkedAt: new Date().toISOString(),
       checkTime: checkTime.text,
+      remindDays,
+      configSource,
       telegramConfigured: notifier.configured,
       summary,
       items,
@@ -363,11 +426,12 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, logger =
       checkTime: checkTime.text,
       dailyRemind,
       backorderNotify,
+      configSource,
       telegramConfigured: notifier.configured,
       running: Boolean(timer),
       checking: running,
     };
   }
 
-  return { check, snapshot, start, stop, status };
+  return { check, snapshot, start, stop, status, applyConfig, currentConfig };
 }

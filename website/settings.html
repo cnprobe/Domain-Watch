@@ -22,6 +22,14 @@
   .card { margin:0 0 20px; padding:24px; border:1px solid var(--line); border-radius:var(--radius); background:var(--paper); box-shadow:var(--shadow); transition:border-color .3s ease,box-shadow .3s ease; } .card:hover { border-color:var(--gold-line); box-shadow:var(--shadow-hover); } h2 { margin:0 0 8px; font-size:22px; letter-spacing:.07em; } h2::before { content:"❧ "; color:var(--gold); } .hint { margin:0 0 18px; color:var(--ink-soft); font-size:13px; line-height:1.7; }
   .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; } label { display:block; margin-bottom:6px; color:var(--ink-soft); font-size:13px; letter-spacing:.04em; }
   input[type=text],input[type=password] { width:100%; min-height:44px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius); outline:none; background:var(--paper); color:var(--ink); font:inherit; font-size:15px; transition:border-color .3s ease,box-shadow .3s ease; } input::placeholder { color:var(--ink-soft); } input:focus { border-color:var(--gold); box-shadow:0 0 0 2px rgba(139,105,20,.12); }
+  input[type=number],textarea { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius); outline:none; background:var(--paper); color:var(--ink); font:inherit; font-size:15px; transition:border-color .3s ease,box-shadow .3s ease; } input[type=number] { min-height:44px; } textarea { min-height:44px; max-height:60vh; resize:vertical; line-height:1.45; overflow:auto; } textarea::placeholder { color:var(--ink-soft); } input[type=number]:focus,textarea:focus { border-color:var(--gold); box-shadow:0 0 0 2px rgba(139,105,20,.12); }
+  .muted { color:var(--ink-soft); font-weight:400; font-style:normal; } .check em { margin-left:6px; font-size:12px; }
+  .toasts { position:fixed; top:18px; right:18px; z-index:60; display:flex; flex-direction:column; gap:10px; width:min(360px,calc(100vw - 36px)); pointer-events:none; }
+  .toast { pointer-events:auto; display:flex; align-items:flex-start; gap:10px; padding:12px 14px; border:1px solid var(--line); border-left:4px solid var(--fern); border-radius:var(--radius); background:var(--paper); box-shadow:var(--shadow-hover); color:var(--ink); font-size:14px; line-height:1.55; animation:toast-in .26s ease both; transition:opacity .2s ease,transform .2s ease; }
+  .toast.err { border-left-color:var(--rose); } .toast .toast-icon { flex:none; font-size:14px; line-height:1.5; color:var(--fern); } .toast.err .toast-icon { color:var(--rose); }
+  .toast .toast-text { flex:1; word-break:break-word; } .toast .toast-close { flex:none; width:22px; height:22px; margin:-2px -4px 0 0; padding:0; border:0; background:transparent; color:var(--ink-soft); font:inherit; font-size:16px; line-height:1; cursor:pointer; border-radius:4px; } .toast .toast-close:hover { color:var(--ink); background:var(--paper-deep); }
+  @keyframes toast-in { from { opacity:0; transform:translateY(-10px); } to { opacity:1; transform:none; } }
+  @media (prefers-reduced-motion:reduce) { .toast { animation:none; } }
   .check { display:flex; align-items:center; gap:9px; margin:18px 0; color:var(--ink); } .check input { width:auto; accent-color:var(--gold); }
   form button[type=submit] { margin-top:20px; } footer { display:flex; justify-content:space-between; gap:16px; margin-top:64px; padding-top:18px; border-top:1px solid var(--line); color:var(--ink-soft); font-size:12px; letter-spacing:.08em; }
   @media (max-width:700px) { .page { padding:18px 16px 52px; } .topbar { align-items:flex-start; flex-direction:column; gap:16px; } .nav { justify-content:flex-start; } .card { padding:18px; } footer { flex-direction:column; margin-top:48px; } }
@@ -38,9 +46,9 @@
     <nav class="nav"><a class="button secondary" href="/monitor">监控面板</a><a class="button secondary" href="/">域名查询</a><button class="button secondary" id="logout">退出登录</button></nav>
   </header>
   <div class="ornament">Curator Settings</div>
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
   <h1>设置</h1>
-  <p class="sub">单用户账号与 Telegram 通知配置。</p>
-  <div id="message" aria-live="polite"></div>
+  <p class="sub">监控参数、账号与 Telegram 通知配置。</p>
   <div class="summary" id="summary"></div>
 
   <section class="card">
@@ -58,14 +66,38 @@
   </section>
 
   <section class="card">
+    <h2>监控设置</h2>
+    <p class="hint">保存后<strong>立即生效</strong>，无需重启容器。当前配置来源：<strong id="configSource">读取中…</strong>　<span class="muted" id="configUpdated"></span></p>
+    <form id="monitorForm">
+      <div class="grid">
+        <div><label for="monitorDomains">监控域名</label><textarea id="monitorDomains" rows="1" placeholder="example.com, example.org" title="支持逗号、空格或换行分隔，可拖动右下角调整高度"></textarea></div>
+        <div>
+          <label for="monitorRemindDays">提前提醒天数</label>
+          <input id="monitorRemindDays" type="number" min="0" max="365" step="1" required>
+          <p class="hint">0-365，距到期小于等于该天数时提醒</p>
+        </div>
+        <div>
+          <label for="monitorCheckTime">每日检查时间</label>
+          <input id="monitorCheckTime" type="text" inputmode="numeric" placeholder="09:00" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" required>
+          <p class="hint">24 小时制 HH:mm，使用容器时区 TZ</p>
+        </div>
+      </div>
+      <label class="check"><input id="monitorDailyRemind" type="checkbox" checked> 提醒窗口内每天提醒一次</label>
+      <label class="check"><input id="monitorBackorderNotify" type="checkbox" checked> 域名过期后发送抢注提醒</label>
+      <label class="check"><input id="monitorRunOnStartup" type="checkbox"> 容器启动时检查一次<em class="muted">（需重启后生效）</em></label>
+      <button class="button accent" type="submit">保存监控设置</button>
+      <button class="button secondary" type="button" id="monitorReset">恢复为 .env 配置</button>
+    </form>
+  </section>
+
+  <section class="card">
     <h2>Telegram 通知</h2>
-    <p class="hint">Token 和 Chat ID 会使用 AES-256-GCM 加密保存到 Docker 数据卷，不会在页面或日志中显示。</p>
+    <p class="hint">Token 和 Chat ID 会使用 AES-256-GCM 加密保存到 Docker 数据卷，不会在页面或日志中显示。API 地址使用官方 <code>https://api.telegram.org</code> 即可保持默认，只有自建 Bot API Server 时才需要修改。</p>
     <form id="telegram">
       <div class="grid">
         <div><label for="telegramToken">Bot Token</label><input id="telegramToken" type="password" placeholder="留空保持当前 Token"></div>
         <div><label for="telegramChatId">Chat ID</label><input id="telegramChatId" type="text" placeholder="留空保持当前 Chat ID"></div>
-        <div><label for="telegramApiBase">API 地址</label><input id="telegramApiBase" type="text" placeholder="https://api.telegram.org"></div>
-        <div><label for="telegramPassword">当前密码</label><input id="telegramPassword" type="password" required></div>
+        <div><label for="telegramApiBase">API 地址</label><input id="telegramApiBase" type="text" placeholder="https://api.telegram.org" pattern="https?://[^\s]+"></div>
       </div>
       <label class="check"><input id="telegramEnabled" type="checkbox" checked> 启用 Telegram 通知</label>
       <button class="button accent" type="submit">保存 Telegram 配置</button>
@@ -76,13 +108,28 @@
 <script>
 "use strict";
 const $=(id)=>document.getElementById(id);
-const message=(text,kind)=>{$("message").innerHTML=text?`<span class="${kind||""}">${text}</span>`:"";};
-function fill(data){const s=data.settings;$("newUsername").value=s.username;$("telegramChatId").placeholder=s.telegram.chatId?`当前：${s.telegram.chatId}`:"未配置";$("telegramApiBase").value=s.telegram.apiBase||"https://api.telegram.org";$("telegramEnabled").checked=s.telegram.configured;$("summary").innerHTML=`<div class="summary-item"><b>${s.username}</b><span>当前用户</span></div><div class="summary-item"><b>${s.telegram.configured?"已启用":"未配置"}</b><span>Telegram</span></div><div class="summary-item"><b>${data.monitor.domains.length}</b><span>监控域名</span></div>`;}
+const TOAST_MS=4200;
+function toast(text,kind="ok"){const host=$("toasts");if(!host)return;const bad=kind==="err";const item=document.createElement("div");item.className="toast"+(bad?" err":"");
+const icon=document.createElement("span");icon.className="toast-icon";icon.textContent=bad?"\u2715":"\u2713";
+const body=document.createElement("span");body.className="toast-text";body.textContent=text;
+const close=document.createElement("button");close.type="button";close.className="toast-close";close.setAttribute("aria-label","关闭提示");close.textContent="\u00d7";
+item.append(icon,body,close);host.appendChild(item);
+const remove=()=>{item.style.opacity="0";item.style.transform="translateY(-6px)";setTimeout(()=>item.remove(),200);};
+const timer=setTimeout(remove,TOAST_MS);
+item.addEventListener("mouseenter",()=>clearTimeout(timer));
+close.addEventListener("click",()=>{clearTimeout(timer);item.remove();});
+return item;}
+const ok=(text)=>toast(text,"ok");
+const fail=(action,error)=>toast(action+"失败："+((error&&error.message)||"未知错误"),"err");
+function fill(data){const s=data.settings;$("newUsername").value=s.username;$("telegramChatId").placeholder=s.telegram.chatId?`当前：${s.telegram.chatId}`:"未配置";$("telegramApiBase").value=s.telegram.apiBase||"https://api.telegram.org";$("telegramEnabled").checked=s.telegram.configured;$("summary").innerHTML=`<div class="summary-item"><b>${s.username}</b><span>当前用户</span></div><div class="summary-item"><b>${s.telegram.configured?"已启用":"未配置"}</b><span>Telegram</span></div><div class="summary-item"><b>${data.monitor.domains.length}</b><span>监控域名</span></div><div class="summary-item"><b>${data.monitor.checkTime}</b><span>检查时间</span></div>`;
+const c=data.monitorConfig||{};$("monitorDomains").value=c.domains||"";$("monitorRemindDays").value=c.remindDays??30;$("monitorCheckTime").value=c.checkTime||"09:00";$("monitorDailyRemind").checked=c.dailyRemind!==false;$("monitorBackorderNotify").checked=c.backorderNotify!==false;$("monitorRunOnStartup").checked=c.runOnStartup===true;$("configSource").textContent=c.source==="panel"?"设置面板":".env 文件";$("configUpdated").textContent=c.source==="panel"&&c.updatedAt?`最后保存：${new Date(c.updatedAt).toLocaleString()}`:"";}
 async function load(){const response=await fetch("/api/settings");if(response.status===401){location.href="/login?next=/settings";return;}const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"加载失败");fill(data);}
-$("credentials").addEventListener("submit",async(event)=>{event.preventDefault();if($("newPassword").value!==$("confirmPassword").value){message("两次输入的新密码不一致","err");return;}const button=event.target.querySelector("button");button.disabled=true;try{const response=await fetch("/api/auth/change-credentials",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({currentPassword:$("currentPassword").value,username:$("newUsername").value,newPassword:$("newPassword").value})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"保存失败");message("账号已更新，请重新登录","ok");setTimeout(()=>location.href="/login",800);}catch(error){message(error.message,"err");}finally{button.disabled=false;}});
-$("telegram").addEventListener("submit",async(event)=>{event.preventDefault();const button=event.target.querySelector("button");button.disabled=true;try{const response=await fetch("/api/settings/telegram",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({currentPassword:$("telegramPassword").value,token:$("telegramToken").value,chatId:$("telegramChatId").value,apiBase:$("telegramApiBase").value,enabled:$("telegramEnabled").checked})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"保存失败");message("Telegram 配置已加密保存","ok");$("telegramToken").value="";$("telegramPassword").value="";await load();}catch(error){message(error.message,"err");}finally{button.disabled=false;}});
-$("logout").addEventListener("click",async()=>{await fetch("/api/auth/logout",{method:"POST"});location.href="/login";});
-load().catch(error=>message(error.message,"err"));
+$("credentials").addEventListener("submit",async(event)=>{event.preventDefault();if($("newPassword").value!==$("confirmPassword").value){fail("修改账号密码",new Error("两次输入的新密码不一致"));return;}const button=event.target.querySelector("button");button.disabled=true;try{const response=await fetch("/api/auth/change-credentials",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({currentPassword:$("currentPassword").value,username:$("newUsername").value,newPassword:$("newPassword").value})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"保存失败");ok("账号信息更新成功，请重新登录");setTimeout(()=>location.href="/login",1200);}catch(error){fail("修改账号密码",error);}finally{button.disabled=false;}});
+$("monitorForm").addEventListener("submit",async(event)=>{event.preventDefault();const button=event.target.querySelector('button[type=submit]');button.disabled=true;try{const response=await fetch("/api/settings/monitor",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({domains:$("monitorDomains").value,remindDays:Number($("monitorRemindDays").value),checkTime:$("monitorCheckTime").value.trim(),dailyRemind:$("monitorDailyRemind").checked,backorderNotify:$("monitorBackorderNotify").checked,runOnStartup:$("monitorRunOnStartup").checked})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"保存失败");ok(data.message||"监控设置保存成功，已立即生效");}catch(error){fail("保存监控设置",error);}finally{button.disabled=false;}load().catch(error=>toast("刷新页面数据失败："+error.message,"err"));});
+$("monitorReset").addEventListener("click",async()=>{if(!confirm("确定放弃面板中的监控设置，恢复为 .env 里的值？"))return;const button=$("monitorReset");button.disabled=true;try{const response=await fetch("/api/settings/monitor",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({reset:true})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"恢复失败");ok(data.message||"已恢复为 .env 配置");}catch(error){fail("恢复 .env 配置",error);}finally{button.disabled=false;}load().catch(error=>toast("刷新页面数据失败："+error.message,"err"));});
+$("telegram").addEventListener("submit",async(event)=>{event.preventDefault();const button=event.target.querySelector("button");button.disabled=true;try{const response=await fetch("/api/settings/telegram",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:$("telegramToken").value,chatId:$("telegramChatId").value,apiBase:$("telegramApiBase").value,enabled:$("telegramEnabled").checked})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"保存失败");ok(data.message||"Telegram 配置保存成功，已加密存储");$("telegramToken").value="";}catch(error){fail("保存 Telegram 配置",error);}finally{button.disabled=false;}load().catch(error=>toast("刷新页面数据失败："+error.message,"err"));});
+$("logout").addEventListener("click",async()=>{try{const response=await fetch("/api/auth/logout",{method:"POST"});if(!response.ok)throw new Error("服务端未接受退出请求");location.href="/login";}catch(error){fail("退出登录",error);}});
+load().catch(error=>fail("加载设置",error));
 </script>
 </body>
 </html>

@@ -12,6 +12,7 @@
 - Telegram 通知：Token 与 Chat ID 使用 AES-256-GCM 加密保存，页面和接口都不回显明文
 - 单用户账号：首次启动生成随机密码并打印到日志，scrypt 哈希存储，HttpOnly 会话 Cookie
 - 默认全站私有：除登录页和健康检查外，所有页面与接口都需登录；需要公开查询页时可显式开启
+- 面板热修改：监控域名、提醒天数、检查时间等在设置页保存后立即生效，无需重启
 - 提醒去重：状态持久化到 `reminders.json`，重启不重复发送
 - 免构建部署：GitHub Actions 按版本标签发布多架构镜像，用户直接 `docker pull`
 
@@ -117,6 +118,30 @@ npm run website:start      # 读取根目录 .env 并启动
 
 完整列表见 [`.env.example`](.env.example)。
 
+下面这些**监控参数可以直接在 `/settings` 页面改，保存后立即生效，不用重启容器**：
+
+| 参数 | 说明 |
+| --- | --- |
+| `DOMAINS` | 监控域名，支持逗号、空格或换行分隔 |
+| `REMIND_DAYS` | 提前提醒天数，超出 0-365 会自动夹紧 |
+| `CHECK_TIME` | 每日检查时间 `HH:mm`；改成当前分钟，下一次轮询就会立刻检查一次 |
+| `DAILY_REMIND` | 提醒窗口内是否每天提醒一次 |
+| `BACKORDER_NOTIFY` | 过期后是否发送抢注提醒 |
+| `RUN_ON_STARTUP` | 容器启动时检查一次（**仅下次启动生效**） |
+
+配置优先级：**设置面板保存的值 > `.env`**。首次启动使用 `.env` 的值；一旦在面板保存过，就以面板为准，启动日志和监控页都会显示当前来源。想改回 `.env`，在设置页点「恢复为 .env 配置」。
+
+其余变量必须重启容器才生效：
+
+| 参数 | 原因 |
+| --- | --- |
+| `PORT` `HOST` | 监听参数在启动时确定 |
+| `TZ` | 影响「今天」的判定和检查时间，热改会导致提醒去重错乱 |
+| `PUBLIC_QUERY` `COOKIE_SECURE` | 决定路由鉴权和 Cookie 属性 |
+| `ADMIN_USERNAME` `SESSION_TTL_DAYS` | 账号初始化与会话签发 |
+| `CONFIG_ENCRYPTION_KEY` | 更换密钥会导致已保存的 Telegram 配置无法解密 |
+| `DATA_DIR` | 存储位置 |
+
 ### HTTP 与账号
 
 | 变量 | 默认值 | 说明 |
@@ -210,15 +235,18 @@ docker run --rm \
 | `POST /api/auth/login` | 公开 | 登录，成功后下发 `dw_session` Cookie |
 | `POST /api/auth/logout` | 登录 | 退出登录 |
 | `GET /api/auth/me` | 登录 | 当前账号信息 |
-| `POST /api/auth/change-credentials` | 登录 | 修改用户名和密码，成功后会话失效 |
-| `GET /api/settings` | 登录 | 读取设置（不回显 Token） |
-| `PUT /api/settings/telegram` | 登录 | 保存 Telegram 配置，需当前密码 |
+| `POST /api/auth/change-credentials` | 登录 | 修改用户名和密码，**需当前密码**（改的是登录凭据本身），成功后当前会话失效 |
+| `GET /api/settings` | 登录 | 读取设置（不回显 Token），含 `monitorConfig`（面板可编辑的监控参数）和 `monitor`（当前生效值） |
+| `PUT /api/settings/monitor` | 登录 | 保存监控参数，**保存后立即生效**；传 `{"reset":true}` 恢复为 `.env` 中的值 |
+| `PUT /api/settings/telegram` | 登录 | 保存 Telegram 配置 |
 | `GET /api/monitor` | 登录 | 实时查询全部监控域名并返回汇总，不发通知 |
 | `GET /api/status` | 登录 | 监控参数与 Telegram 是否已配置 |
 | `POST /api/test-notify` | 登录 | 发送测试通知 |
 | `POST /api/check` | 登录 | 立即检查；`?simulate=expired` 可测试抢注分支 |
 
 登录接口限流：同一 IP 15 分钟内失败 5 次后返回 `429`。带会话的写操作会校验 `Origin` 同源，不一致返回 `403 csrf_rejected`。
+
+保存设置（监控参数、Telegram）只需登录会话，不再重复要求输入当前密码；只有修改登录凭据时才需要。
 
 ### 错误码
 
@@ -241,11 +269,15 @@ docker run --rm \
 | `telegram_timeout` | 504 | Telegram 请求超过 15 秒 |
 | `page_unavailable` | 500 | 页面文件缺失或不可读 |
 | `settings_corrupted` / `settings_unreadable` | 500 | 设置文件损坏或读取失败 |
+
 | `invalid_config_key` | 500 | 加密密钥缺失或不匹配 |
 | `telegram_decrypt_failed` | 500 | 无法解密 Telegram 配置 |
 | `invalid_data_dir` | 500 | `DATA_DIR` 未配置 |
 | `not_found` | 404 | 页面或接口不存在 |
 | `invalid_domain` / `invalid_argument` | 400 | 域名参数为空或非法 |
+| `invalid_domains` | 400 | 监控域名内容为空格式错误或超过 4000 字符 |
+| `invalid_check_time` | 400 | 检查时间不是 `HH:mm` 格式 |
+| `invalid_remind_days` | 400 | 提前提醒天数不是数字 |
 | `unsupported_tld` | 422 | 后缀没有可用的 RDAP 或 WHOIS 服务 |
 | `rate_limited` | 429 | 上游 WHOIS 服务限流 |
 | `timeout` / `network_error` / `http_error` / `parse_error` | 502 | 上游查询失败 |
