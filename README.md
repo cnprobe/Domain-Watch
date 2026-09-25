@@ -17,10 +17,13 @@
 
 ## 快速开始
 
+仓库地址：<https://github.com/cnprobe/Domain-Watch>
+镜像地址：`ghcr.io/cnprobe/domain-watch`
+
 ### 方式一：直接用已发布镜像（推荐，无需构建）
 
 ```sh
-docker pull ghcr.io/cnprobe/komari-plugin-domain-watch:latest
+docker pull ghcr.io/cnprobe/domain-watch:latest
 ```
 
 准备配置：
@@ -45,7 +48,7 @@ docker run -d \
   --env-file ~/domain-watch/.env \
   -p 3000:3000 \
   -v domain-watch-data:/app/data \
-  ghcr.io/cnprobe/komari-plugin-domain-watch:latest
+  ghcr.io/cnprobe/domain-watch:latest
 ```
 
 首次启动会生成管理员密码，**只打印一次**：
@@ -57,21 +60,24 @@ docker logs domain-watch
 用 Compose：
 
 ```sh
-export DOMAIN_WATCH_IMAGE=ghcr.io/cnprobe/komari-plugin-domain-watch:latest
+export DOMAIN_WATCH_IMAGE=ghcr.io/cnprobe/domain-watch:latest
 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 `docker-compose.ghcr.yml` 只拉取镜像，不会在本地执行 `docker build`。
 
-> 镜像名跟随 GitHub 仓库名。若 GHCR 包为私有，先登录：
+> 镜像名跟随 GitHub 仓库名（`cnprobe/Domain-Watch` → `ghcr.io/cnprobe/domain-watch`）。
+> 若 GHCR 包为私有，先登录：
 > `echo "$TOKEN" | docker login ghcr.io -u cnprobe --password-stdin`（Token 需要 `read:packages`）。
 > 希望所有人免登录拉取，需在 GitHub Package Settings 中把包设为 Public。
+>
+> 仓库改名前发布的镜像名为 `ghcr.io/cnprobe/komari-plugin-domain-watch`，已不再更新，请改用新镜像名。
 
 ### 方式二：本地构建 Docker 镜像
 
 ```sh
-git clone https://github.com/cnprobe/Komari-plugin-domain-watch.git
-cd Komari-plugin-domain-watch
+git clone https://github.com/cnprobe/Domain-Watch.git
+cd Domain-Watch
 cp .env.example .env
 vim .env                   # 至少设置 DOMAINS
 docker compose up -d --build
@@ -280,7 +286,7 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-推送后发布到 `ghcr.io/cnprobe/komari-plugin-domain-watch`：
+推送后发布到 `ghcr.io/cnprobe/domain-watch`：
 
 | 标签 | 含义 |
 | --- | --- |

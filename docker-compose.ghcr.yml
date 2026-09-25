@@ -1,6 +1,6 @@
 services:
   domain-watch:
-    image: ${DOMAIN_WATCH_IMAGE:-ghcr.io/cnprobe/komari-plugin-domain-watch:latest}
+    image: ${DOMAIN_WATCH_IMAGE:-ghcr.io/cnprobe/domain-watch:latest}
     env_file:
       - .env
     environment:
