@@ -41,8 +41,9 @@
 <script>
 "use strict";
 const form=document.getElementById("form"),message=document.getElementById("message"),submit=document.getElementById("submit");
-const next=new URLSearchParams(location.search).get("next")||"/monitor";
-form.addEventListener("submit",async(event)=>{event.preventDefault();message.textContent="";submit.disabled=true;try{const response=await fetch("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:document.getElementById("username").value,password:document.getElementById("password").value})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"登录失败");location.href=next.startsWith("/")&&!next.startsWith("//")?next:"/monitor";}catch(error){message.textContent=error.message;}finally{submit.disabled=false;}});
+function safeNext(raw){const value=String(raw||"/monitor");if(!value.startsWith("/")||value.startsWith("//")||value.includes("\\")||/%2f|%5c/i.test(value)||/[\u0000-\u001f]/.test(value))return "/monitor";try{const url=new URL(value,location.origin);if(url.origin!==location.origin)return "/monitor";return url.pathname+url.search;}catch{return "/monitor";}}
+const next=safeNext(new URLSearchParams(location.search).get("next"));
+form.addEventListener("submit",async(event)=>{event.preventDefault();message.textContent="";submit.disabled=true;try{const response=await fetch("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:document.getElementById("username").value,password:document.getElementById("password").value})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"登录失败");location.href=next;}catch(error){message.textContent=error.message;}finally{submit.disabled=false;}});
 </script>
 </body>
 </html>

@@ -14,7 +14,8 @@ const loginFile = resolve(process.env.LOGIN_PAGE_FILE || join(rootDir, "website/
 const settingsFile = resolve(process.env.SETTINGS_PAGE_FILE || join(rootDir, "website/settings.html"));
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "0.0.0.0";
-const publicQuery = envBoolean(process.env.PUBLIC_QUERY, true);
+// 默认全站私有：只有 /login、/api/auth/login 和 /healthz 公开，查询页需要登录
+const publicQuery = envBoolean(process.env.PUBLIC_QUERY, false);
 const cookieSecure = envBoolean(process.env.COOKIE_SECURE, false);
 const loginWindowMs = 15 * 60 * 1000;
 const loginMaxFailures = 5;

@@ -11,6 +11,7 @@
 - 过期抢注提醒：域名进入删除期后提醒一次，可续费赎回或关注抢注
 - Telegram 通知：Token 与 Chat ID 使用 AES-256-GCM 加密保存，页面和接口都不回显明文
 - 单用户账号：首次启动生成随机密码并打印到日志，scrypt 哈希存储，HttpOnly 会话 Cookie
+- 默认全站私有：除登录页和健康检查外，所有页面与接口都需登录；需要公开查询页时可显式开启
 - 提醒去重：状态持久化到 `reminders.json`，重启不重复发送
 - 免构建部署：GitHub Actions 按版本标签发布多架构镜像，用户直接 `docker pull`
 
@@ -94,11 +95,15 @@ npm run website:start      # 读取根目录 .env 并启动
 
 | 路径 | 说明 | 访问控制 |
 | --- | --- | --- |
-| `/` | 域名查询页 | 默认公开，由 `PUBLIC_QUERY` 控制 |
+| `/` | 域名查询页 | 需登录 |
 | `/login` | 管理员登录 | 公开 |
 | `/monitor` | 监控面板 | 需登录 |
 | `/settings` | 账号与 Telegram 设置 | 需登录 |
 | `/healthz` | 健康检查 | 公开 |
+
+**默认全站私有**：除 `/login` 和 `/healthz` 外，所有页面和接口都必须登录后才能访问，未登录访问 `/` 会跳转到 `/login?next=/`，登录成功后自动跳回原页面。
+
+如果确实需要一个公开的查询页，把 `.env` 中的 `PUBLIC_QUERY` 设为 `true` 即可，此时 `/` 和 `/api/whois` 免登录可访问，其余页面仍然需要登录。生产环境建议保持默认的 `false`，避免查询接口被外部滥用（每次查询都会请求第三方 RDAP / WHOIS 服务）。
 
 查询页右上角有「监控面板」和「管理员」按钮，登录后「管理员」自动变为「设置」。
 
@@ -117,7 +122,7 @@ npm run website:start      # 读取根目录 .env 并启动
 | `ADMIN_USERNAME` | `admin` | 首次启动创建的用户名，之后以设置页保存值为准 |
 | `SESSION_TTL_DAYS` | `7` | 会话有效期，1-30 天 |
 | `COOKIE_SECURE` | `false` | HTTPS 反向代理时设为 `true`；请求带 `X-Forwarded-Proto: https` 时也会自动启用 |
-| `PUBLIC_QUERY` | `true` | 查询页与 `/api/whois` 是否公开 |
+| `PUBLIC_QUERY` | `false` | 设为 `true` 时才允许未登录访问 `/` 和 `/api/whois`；默认全站需登录 |
 | `RESET_ADMIN_PASSWORD` | `false` | 临时设为 `true` 重启一次可重置密码并打印新密码 |
 | `CONFIG_ENCRYPTION_KEY` | 空 | Telegram 配置加密密钥，留空自动生成 `data/config.key` |
 | `ADMIN_TOKEN` | 空 | 已弃用的 API 兼容令牌（`Authorization: Bearer`），正常留空 |
@@ -195,7 +200,7 @@ docker run --rm \
 | 方法与路径 | 鉴权 | 说明 |
 | --- | --- | --- |
 | `GET /healthz` | 公开 | 健康检查 |
-| `GET /api/whois?domain=` | `PUBLIC_QUERY=true` 时公开 | 域名查询，兼容 `GET /api/plugin/whois` |
+| `GET /api/whois?domain=` | 需登录（`PUBLIC_QUERY=true` 时公开） | 域名查询，兼容 `GET /api/plugin/whois` |
 | `POST /api/auth/login` | 公开 | 登录，成功后下发 `dw_session` Cookie |
 | `POST /api/auth/logout` | 登录 | 退出登录 |
 | `GET /api/auth/me` | 登录 | 当前账号信息 |
