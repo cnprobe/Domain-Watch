@@ -1,0 +1,18 @@
+services:
+  domain-watch:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /app/data
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
+    volumes:
+      - domain-watch-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  domain-watch-data:
+    name: domain-watch-data

@@ -1,0 +1,10 @@
+.git
+.gitignore
+node_modules
+website/dist
+data
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store

@@ -1,0 +1,11 @@
+# 依赖与构建产物
+node_modules/
+website/dist/
+data/
+
+# 运行配置（.env.example 需要提交）
+.env
+
+# 其他
+*.log
+.DS_Store

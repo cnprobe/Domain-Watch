@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设置 - Domain Watch</title>
+<style>
+  :root { --ink:#2d4a2d; --ink-soft:#5d705d; --gold:#8b6914; --paper:#faf5ef; --paper-deep:#f4ede3; --rose:#6b3a3a; --fern:#3d5c3d; --line:rgba(45,74,45,.22); --gold-line:rgba(139,105,20,.58); --shadow:0 2px 8px rgba(45,74,45,.08); --shadow-hover:0 4px 12px rgba(139,105,20,.12); --radius:10px; }
+  * { box-sizing:border-box; }
+  html { background:var(--paper); background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.72' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)' opacity='.035'/%3E%3C/svg%3E"); }
+  body { margin:0; color:var(--ink); font-family:Georgia,"Times New Roman","Noto Serif SC","Songti SC",serif; line-height:1.6; }
+  .page { max-width:920px; margin:0 auto; padding:28px 24px 72px; }
+  .topbar { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:14px 0 22px; border-bottom:1px solid var(--line); }
+  .brand { display:flex; align-items:center; gap:12px; } .mark { width:38px; height:38px; color:var(--fern); flex:0 0 auto; } .brand-name { display:block; font-size:19px; font-weight:700; letter-spacing:.12em; } .brand-latin { display:block; color:var(--gold); font-size:12px; font-style:italic; letter-spacing:.08em; }
+  .nav { display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
+  .button { display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:10px 15px; border:1px solid var(--gold-line); border-radius:var(--radius); background:var(--ink); color:var(--paper); font:inherit; font-size:14px; letter-spacing:.04em; text-decoration:none; cursor:pointer; box-shadow:var(--shadow); transition:background-color .3s ease,color .3s ease,border-color .3s ease,box-shadow .3s ease; }
+  .button:hover,.button:focus-visible { background:var(--paper-deep); color:var(--ink); border-color:var(--gold); box-shadow:var(--shadow-hover); } .button.secondary { background:var(--paper); color:var(--ink); border-color:var(--line); } .button.accent { background:var(--gold); color:var(--paper); } .button.accent:hover { background:var(--ink); color:var(--paper); } .button:focus-visible { outline:2px solid rgba(139,105,20,.35); outline-offset:3px; }
+  .ornament { display:flex; align-items:center; gap:12px; margin-top:38px; color:var(--gold); font-size:12px; letter-spacing:.24em; text-transform:uppercase; } .ornament::before,.ornament::after { content:""; display:block; width:48px; height:1px; background:var(--gold-line); }
+  h1 { margin:16px 0 6px; font-size:clamp(34px,6vw,60px); letter-spacing:.05em; line-height:1.05; } .sub { margin:0 0 28px; color:var(--ink-soft); font-size:16px; }
+  #message { min-height:26px; margin:10px 0; font-size:14px; } .ok { color:var(--fern); } .err { color:var(--rose); }
+  .summary { display:flex; gap:28px; flex-wrap:wrap; margin:0 0 26px; } .summary-item { min-width:120px; } .summary-item b { display:block; color:var(--ink); font-size:22px; } .summary-item span { color:var(--ink-soft); font-size:12px; letter-spacing:.08em; }
+  .card { margin:0 0 20px; padding:24px; border:1px solid var(--line); border-radius:var(--radius); background:var(--paper); box-shadow:var(--shadow); transition:border-color .3s ease,box-shadow .3s ease; } .card:hover { border-color:var(--gold-line); box-shadow:var(--shadow-hover); } h2 { margin:0 0 8px; font-size:22px; letter-spacing:.07em; } h2::before { content:"❧ "; color:var(--gold); } .hint { margin:0 0 18px; color:var(--ink-soft); font-size:13px; line-height:1.7; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; } label { display:block; margin-bottom:6px; color:var(--ink-soft); font-size:13px; letter-spacing:.04em; }
+  input[type=text],input[type=password] { width:100%; min-height:44px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius); outline:none; background:var(--paper); color:var(--ink); font:inherit; font-size:15px; transition:border-color .3s ease,box-shadow .3s ease; } input::placeholder { color:var(--ink-soft); } input:focus { border-color:var(--gold); box-shadow:0 0 0 2px rgba(139,105,20,.12); }
+  .check { display:flex; align-items:center; gap:9px; margin:18px 0; color:var(--ink); } .check input { width:auto; accent-color:var(--gold); }
+  form button[type=submit] { margin-top:20px; } footer { display:flex; justify-content:space-between; gap:16px; margin-top:64px; padding-top:18px; border-top:1px solid var(--line); color:var(--ink-soft); font-size:12px; letter-spacing:.08em; }
+  @media (max-width:700px) { .page { padding:18px 16px 52px; } .topbar { align-items:flex-start; flex-direction:column; gap:16px; } .nav { justify-content:flex-start; } .card { padding:18px; } footer { flex-direction:column; margin-top:48px; } }
+  @media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none !important; } }
+</style>
+</head>
+<body>
+<main class="page">
+  <header class="topbar">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="M24 43V9M24 30c-7-1-12-5-13-12 7 0 12 4 13 12Zm0-8c7-1 12-5 13-12-7 0-12 4-13 12Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M24 15c-3-4-3-8 0-12 3 4 3 8 0 12Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      <div><span class="brand-name">DOMAIN WATCH</span><span class="brand-latin">Collection settings</span></div>
+    </div>
+    <nav class="nav"><a class="button secondary" href="/monitor">监控面板</a><a class="button secondary" href="/">域名查询</a><button class="button secondary" id="logout">退出登录</button></nav>
+  </header>
+  <div class="ornament">Curator Settings</div>
+  <h1>设置</h1>
+  <p class="sub">单用户账号与 Telegram 通知配置。</p>
+  <div id="message" aria-live="polite"></div>
+  <div class="summary" id="summary"></div>
+
+  <section class="card">
+    <h2>账号安全</h2>
+    <p class="hint">修改密码会使当前登录会话失效，需要重新登录。初始随机密码只在 Docker 首次启动日志中显示一次。</p>
+    <form id="credentials">
+      <div class="grid">
+        <div><label for="currentPassword">当前密码</label><input id="currentPassword" type="password" required></div>
+        <div><label for="newUsername">用户名</label><input id="newUsername" type="text" required></div>
+        <div><label for="newPassword">新密码</label><input id="newPassword" type="password" minlength="12" required></div>
+        <div><label for="confirmPassword">确认新密码</label><input id="confirmPassword" type="password" minlength="12" required></div>
+      </div>
+      <button class="button" type="submit">更新账号密码</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Telegram 通知</h2>
+    <p class="hint">Token 和 Chat ID 会使用 AES-256-GCM 加密保存到 Docker 数据卷，不会在页面或日志中显示。</p>
+    <form id="telegram">
+      <div class="grid">
+        <div><label for="telegramToken">Bot Token</label><input id="telegramToken" type="password" placeholder="留空保持当前 Token"></div>
+        <div><label for="telegramChatId">Chat ID</label><input id="telegramChatId" type="text" placeholder="留空保持当前 Chat ID"></div>
+        <div><label for="telegramApiBase">API 地址</label><input id="telegramApiBase" type="text" placeholder="https://api.telegram.org"></div>
+        <div><label for="telegramPassword">当前密码</label><input id="telegramPassword" type="password" required></div>
+      </div>
+      <label class="check"><input id="telegramEnabled" type="checkbox" checked> 启用 Telegram 通知</label>
+      <button class="button accent" type="submit">保存 Telegram 配置</button>
+    </form>
+  </section>
+  <footer><span>Domain Watch · Private Herbarium</span><span>Encrypted local settings</span></footer>
+</main>
+<script>
+"use strict";
+const $=(id)=>document.getElementById(id);
+const message=(text,kind)=>{$("message").innerHTML=text?`<span class="${kind||""}">${text}</span>`:"";};
+function fill(data){const s=data.settings;$("newUsername").value=s.username;$("telegramChatId").placeholder=s.telegram.chatId?`当前：${s.telegram.chatId}`:"未配置";$("telegramApiBase").value=s.telegram.apiBase||"https://api.telegram.org";$("telegramEnabled").checked=s.telegram.configured;$("summary").innerHTML=`<div class="summary-item"><b>${s.username}</b><span>当前用户</span></div><div class="summary-item"><b>${s.telegram.configured?"已启用":"未配置"}</b><span>Telegram</span></div><div class="summary-item"><b>${data.monitor.domains.length}</b><span>监控域名</span></div>`;}
+async function load(){const response=await fetch("/api/settings");if(response.status===401){location.href="/login?next=/settings";return;}const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"加载失败");fill(data);}
+$("credentials").addEventListener("submit",async(event)=>{event.preventDefault();if($("newPassword").value!==$("confirmPassword").value){message("两次输入的新密码不一致","err");return;}const button=event.target.querySelector("button");button.disabled=true;try{const response=await fetch("/api/auth/change-credentials",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({currentPassword:$("currentPassword").value,username:$("newUsername").value,newPassword:$("newPassword").value})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"保存失败");message("账号已更新，请重新登录","ok");setTimeout(()=>location.href="/login",800);}catch(error){message(error.message,"err");}finally{button.disabled=false;}});
+$("telegram").addEventListener("submit",async(event)=>{event.preventDefault();const button=event.target.querySelector("button");button.disabled=true;try{const response=await fetch("/api/settings/telegram",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({currentPassword:$("telegramPassword").value,token:$("telegramToken").value,chatId:$("telegramChatId").value,apiBase:$("telegramApiBase").value,enabled:$("telegramEnabled").checked})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"保存失败");message("Telegram 配置已加密保存","ok");$("telegramToken").value="";$("telegramPassword").value="";await load();}catch(error){message(error.message,"err");}finally{button.disabled=false;}});
+$("logout").addEventListener("click",async()=>{await fetch("/api/auth/logout",{method:"POST"});location.href="/login";});
+load().catch(error=>message(error.message,"err"));
+</script>
+</body>
+</html>

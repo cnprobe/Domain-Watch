@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Whois 查询 - Domain Watch</title>
+<style>
+  :root {
+    --ink: #2d4a2d;
+    --ink-soft: #5d705d;
+    --gold: #8b6914;
+    --gold-soft: #b08b3c;
+    --paper: #faf5ef;
+    --paper-deep: #f4ede3;
+    --rose: #6b3a3a;
+    --fern: #3d5c3d;
+    --line: rgba(45, 74, 45, .22);
+    --gold-line: rgba(139, 105, 20, .58);
+    --shadow: 0 2px 8px rgba(45, 74, 45, .08);
+    --shadow-hover: 0 4px 12px rgba(139, 105, 20, .12);
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  html {
+    background: var(--paper);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cfilter id='paper'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.72' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23paper)' opacity='.035'/%3E%3C/svg%3E");
+  }
+  body {
+    margin: 0;
+    color: var(--ink);
+    background: transparent;
+    font-family: Georgia, "Times New Roman", "Noto Serif SC", serif;
+    line-height: 1.65;
+  }
+  a { color: inherit; }
+  .page { max-width: 1120px; margin: 0 auto; padding: 28px 24px 72px; }
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 14px 0 22px;
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .botanical-mark { width: 38px; height: 38px; color: var(--fern); flex: 0 0 auto; }
+  .brand-name { display: block; font-size: 19px; font-weight: 700; letter-spacing: .12em; }
+  .brand-latin { display: block; margin-top: 1px; color: var(--gold); font-size: 12px; font-style: italic; letter-spacing: .08em; }
+  .admin-area { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+  .button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 46px;
+    padding: 11px 20px;
+    border: 1px solid var(--gold-line);
+    border-radius: var(--radius);
+    background: var(--ink);
+    color: var(--paper);
+    font: inherit;
+    font-size: 15px;
+    letter-spacing: .06em;
+    text-decoration: none;
+    cursor: pointer;
+    box-shadow: var(--shadow);
+    transition: background-color .3s ease, color .3s ease, border-color .3s ease, box-shadow .3s ease;
+  }
+  .button:hover, .button:focus-visible { border-color: var(--gold); background: var(--paper-deep); color: var(--ink); box-shadow: var(--shadow-hover); }
+  .button.accent { background: var(--gold); color: var(--paper); border-color: var(--gold); }
+  .button.accent:hover, .button.accent:focus-visible { background: var(--ink); color: var(--paper); }
+  .button.secondary { background: var(--paper); color: var(--ink); border-color: var(--line); }
+  .button.secondary:hover, .button.secondary:focus-visible { background: var(--gold); color: var(--paper); border-color: var(--gold); }
+  .button:focus-visible { outline: 2px solid rgba(139, 105, 20, .35); outline-offset: 3px; }
+  .button:active { background: var(--fern); border-color: var(--gold); }
+  .intro { max-width: 760px; padding: 72px 0 12px; }
+  .ornament { display: flex; align-items: center; gap: 12px; color: var(--gold); font-size: 12px; letter-spacing: .24em; text-transform: uppercase; }
+  .ornament::before, .ornament::after { content: ""; display: block; width: 52px; height: 1px; background: var(--gold-line); }
+  h1 { margin: 18px 0 16px; color: var(--ink); font-size: clamp(38px, 7vw, 76px); font-weight: 700; letter-spacing: .045em; line-height: 1.05; }
+  .intro p { max-width: 640px; margin: 0; color: var(--ink-soft); font-size: 18px; }
+  .query-section { margin-top: 64px; }
+  .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+  .section-heading h2 { margin: 0; color: var(--ink); font-size: 25px; font-weight: 700; letter-spacing: .08em; }
+  .section-heading span { color: var(--gold); font-size: 12px; font-style: italic; letter-spacing: .1em; }
+  .search { display: flex; align-items: stretch; gap: 12px; }
+  .search input {
+    flex: 1;
+    min-width: 0;
+    min-height: 52px;
+    padding: 12px 15px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    outline: none;
+    background: var(--paper);
+    color: var(--ink);
+    font: inherit;
+    font-size: 19px;
+    box-shadow: inset 0 1px 2px rgba(45,74,45,.03);
+    transition: border-color .3s ease, box-shadow .3s ease;
+  }
+  .search input::placeholder { color: var(--ink-soft); }
+  .search input:focus { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(139,105,20,.12); }
+  .search .button { flex: 0 0 auto; min-width: 116px; }
+  .search-note { margin: 11px 0 0; color: var(--ink-soft); font-size: 13px; font-style: italic; }
+  #status { min-height: 28px; margin-top: 24px; color: var(--fern); font-size: 15px; }
+  #status.error { color: var(--rose); }
+  #result { display: grid; gap: 20px; margin-top: 28px; }
+  .hidden { display: none; }
+  .card {
+    padding: 24px 26px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--paper);
+    box-shadow: var(--shadow);
+    transition: border-color .3s ease, box-shadow .3s ease;
+  }
+  .card:hover { border-color: var(--gold-line); box-shadow: var(--shadow-hover); }
+  .card h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 18px; color: var(--ink); font-size: 21px; font-weight: 700; letter-spacing: .06em; }
+  .card h3::before { content: "❧"; color: var(--gold); font-size: 19px; font-style: normal; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  td { padding: 10px 0; border-top: 1px solid var(--line); vertical-align: top; }
+  td:first-child { width: 34%; padding-right: 22px; color: var(--ink-soft); font-size: 13px; letter-spacing: .05em; }
+  td a { color: var(--gold); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; }
+  td a:hover, td a:focus-visible { color: var(--ink); }
+  .pill { display: inline-block; margin: 2px 6px 2px 0; padding: 3px 9px; border: 1px solid var(--gold-line); border-radius: 7px; background: var(--paper-deep); color: var(--gold); font-size: 12px; }
+  .value { overflow-wrap: anywhere; }
+  .raw-toggle { display: inline-block; margin-top: 4px; color: var(--gold); border-bottom: 1px solid var(--gold-line); cursor: pointer; font-size: 14px; }
+  .raw-toggle:hover, .raw-toggle:focus-visible { color: var(--ink); border-bottom-color: var(--ink); }
+  pre { max-height: 430px; margin: 15px 0 0; padding: 16px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--ink); color: var(--paper); font: 13px/1.55 "Courier New", monospace; white-space: pre-wrap; }
+  footer { display: flex; justify-content: space-between; gap: 16px; margin-top: 82px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--ink-soft); font-size: 12px; letter-spacing: .08em; }
+  footer a { color: var(--gold); text-decoration: none; }
+  footer a:hover, footer a:focus-visible { color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
+  @media (max-width: 640px) {
+    .page { padding: 18px 16px 52px; }
+    .topbar { align-items: flex-start; flex-direction: column; gap: 16px; }
+    .admin-area { justify-content: flex-start; }
+    .intro { padding-top: 48px; }
+    .query-section { margin-top: 48px; }
+    .search { flex-direction: column; }
+    .search .button { width: 100%; }
+    .card { padding: 19px 18px; }
+    td:first-child { width: 42%; padding-right: 12px; }
+    footer { flex-direction: column; margin-top: 58px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+  <header class="topbar">
+    <div class="brand">
+      <svg class="botanical-mark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="M24 43V9M24 30c-7-1-12-5-13-12 7 0 12 4 13 12Zm0-8c7-1 12-5 13-12-7 0-12 4-13 12Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M24 15c-3-4-3-8 0-12 3 4 3 8 0 12Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+      </svg>
+      <div><span class="brand-name">DOMAIN WATCH</span><span class="brand-latin">Herbarium digitalis</span></div>
+    </div>
+    <div class="admin-area">
+      <a class="button secondary" href="/monitor">监控面板</a>
+      <a class="button accent" id="adminLink" href="/login">管理员</a>
+    </div>
+  </header>
+
+  <section class="intro">
+    <div class="ornament">Whois / RDAP Specimen</div>
+    <h1>查一个域名。</h1>
+    <p>像阅读一份植物标本卡片一样，查看域名的注册时间、到期时间、注册商与命名系统记录。</p>
+  </section>
+
+  <section class="query-section" aria-labelledby="queryTitle">
+    <div class="section-heading"><h2 id="queryTitle">域名查询</h2><span>specimen no. 001</span></div>
+    <form class="search" id="searchForm">
+      <input type="text" id="domain" placeholder="example.com" aria-label="域名" autocomplete="off">
+      <button class="button" id="btn" type="submit">查询</button>
+    </form>
+    <p class="search-note">支持中文域名、URL 和带端口的输入。</p>
+    <div id="status" aria-live="polite"></div>
+    <div id="result" class="hidden"></div>
+  </section>
+
+  <footer><span>Domain Watch · Private Herbarium</span><span>Whois / RDAP Specimen</span></footer>
+</main>
+
+<script>
+"use strict";
+const input = document.getElementById("domain");
+const btn = document.getElementById("btn");
+const form = document.getElementById("searchForm");
+const statusEl = document.getElementById("status");
+const resultEl = document.getElementById("result");
+const adminLink = document.getElementById("adminLink");
+function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+function fmtDate(v) { if (!v) return "—"; const d = new Date(v); if (isNaN(d.getTime())) return esc(v); return d.toLocaleString("zh-CN", { timeZone: "UTC", hour12: false }) + " UTC"; }
+function kv(label, value) { return '<tr><td>' + esc(label) + '</td><td class="value">' + (value === null || value === undefined || value === "" ? "—" : value) + "</td></tr>"; }
+function render(d) {
+  const status = (d.status || []).map(function (s) { return '<span class="pill">' + esc(s) + "</span>"; }).join("");
+  const ns = (d.nameservers || []).map(function (n) { return esc(n); }).join("<br>");
+  const ds = d.dnssec && Array.isArray(d.dnssec.dsData) ? d.dnssec.dsData.map(function (x) { return "keyTag " + x.keyTag + " · algo " + x.algorithm + " · digest " + String(x.digest).slice(0, 24) + "…"; }).join("<br>") : (d.dnssec && d.dnssec.delegationSigned ? "已签名" : "未签名");
+  resultEl.innerHTML =
+    '<section class="card"><h3>基本信息</h3><table>' + kv("域名", esc(d.domain || d.asciiDomain)) + kv("ASCII 形式", d.asciiDomain ? esc(d.asciiDomain) : null) + kv("TLD", d.tld ? esc(d.tld) : null) + kv("注册时间", fmtDate(d.registration)) + kv("到期时间", fmtDate(d.expiration)) + kv("最近变更", fmtDate(d.lastChanged)) + kv("RDAP 服务器", d.rdapServer ? '<a href="' + esc(d.rdapServer) + '" target="_blank" rel="noopener">' + esc(d.rdapServer) + "</a>" : null) + kv("数据来源", d.source === "whois" ? "WHOIS 回退（" + esc(d.whoisServer || "") + "）" : "RDAP") + "</table></section>" +
+    '<section class="card"><h3>注册商</h3><table>' + kv("名称", d.registrar && d.registrar.name ? esc(d.registrar.name) : null) + kv("IANA ID", d.registrar && d.registrar.handle ? esc(d.registrar.handle) : null) + "</table></section>" +
+    '<section class="card"><h3>Nameservers</h3><div class="value">' + (ns || "—") + "</div></section>" +
+    '<section class="card"><h3>状态码</h3><div class="value">' + (status || "—") + "</div></section>" +
+    '<section class="card"><h3>DNSSEC</h3><div class="value">' + ds + "</div></section>" +
+    '<section class="card"><h3>原始 RDAP JSON</h3><div class="raw-toggle" id="toggleRaw" role="button" tabindex="0">展开 / 收起</div><pre id="rawJson" class="hidden">' + esc(JSON.stringify(d, null, 2)) + "</pre></section>";
+  const toggle = document.getElementById("toggleRaw"); const raw = document.getElementById("rawJson");
+  function toggleRaw() { raw.classList.toggle("hidden"); }
+  toggle.addEventListener("click", toggleRaw); toggle.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleRaw(); } });
+  resultEl.classList.remove("hidden");
+}
+async function query(e) { if (e) e.preventDefault(); const domain = input.value.trim(); if (!domain) { statusEl.className = "error"; statusEl.textContent = "请输入域名"; return; } btn.disabled = true; statusEl.className = ""; statusEl.textContent = "查询中…"; try { const resp = await fetch("/api/whois?domain=" + encodeURIComponent(domain), { headers: { Accept: "application/json" } }); if (resp.status === 401) { location.href = "/login?next=/"; return; } const data = await resp.json(); if (data.ok) { statusEl.textContent = "查询成功"; render(data); } else { statusEl.className = "error"; statusEl.textContent = "查询失败：" + ((data.error && data.error.message) || "未知错误"); resultEl.classList.add("hidden"); } } catch (err) { statusEl.className = "error"; statusEl.textContent = "请求失败：" + String(err && err.message || err); resultEl.classList.add("hidden"); } finally { btn.disabled = false; } }
+form.addEventListener("submit", query); input.focus();
+fetch("/api/auth/me").then(function (r) { if (r.ok) { adminLink.href = "/settings"; adminLink.textContent = "设置"; } }).catch(function () {});
+</script>
+</body>
+</html>

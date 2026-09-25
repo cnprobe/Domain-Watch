@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>域名监控 - Domain Watch</title>
+<style>
+  :root { --ink:#2d4a2d; --ink-soft:#5d705d; --gold:#8b6914; --paper:#faf5ef; --paper-deep:#f4ede3; --rose:#6b3a3a; --fern:#3d5c3d; --line:rgba(45,74,45,.22); --gold-line:rgba(139,105,20,.58); --shadow:0 2px 8px rgba(45,74,45,.08); --shadow-hover:0 4px 12px rgba(139,105,20,.12); --radius:10px; }
+  * { box-sizing:border-box; }
+  html { background:var(--paper); background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.72' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)' opacity='.035'/%3E%3C/svg%3E"); }
+  body { margin:0; color:var(--ink); font-family:Georgia,"Times New Roman","Noto Serif SC","Songti SC",serif; line-height:1.6; }
+  .page { max-width:1200px; margin:0 auto; padding:28px 24px 72px; }
+  .topbar { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:14px 0 22px; border-bottom:1px solid var(--line); }
+  .brand { display:flex; align-items:center; gap:12px; } .mark { width:38px; height:38px; color:var(--fern); flex:0 0 auto; }
+  .brand-name { display:block; font-size:19px; font-weight:700; letter-spacing:.12em; } .brand-latin { display:block; color:var(--gold); font-size:12px; font-style:italic; letter-spacing:.08em; }
+  .actions { display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
+  .button { display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:10px 15px; border:1px solid var(--gold-line); border-radius:var(--radius); background:var(--ink); color:var(--paper); font:inherit; font-size:14px; letter-spacing:.04em; text-decoration:none; cursor:pointer; box-shadow:var(--shadow); transition:background-color .3s ease,color .3s ease,border-color .3s ease,box-shadow .3s ease; }
+  .button:hover,.button:focus-visible { background:var(--paper-deep); color:var(--ink); border-color:var(--gold); box-shadow:var(--shadow-hover); } .button.accent { background:var(--gold); color:var(--paper); } .button.accent:hover,.button.accent:focus-visible { background:var(--ink); color:var(--paper); } .button:active { background:var(--fern); } .button:focus-visible { outline:2px solid rgba(139,105,20,.35); outline-offset:3px; } .button.secondary { background:var(--paper); color:var(--ink); border-color:var(--line); }
+  h1 { margin:52px 0 6px; font-size:clamp(34px,6vw,64px); letter-spacing:.05em; line-height:1.05; } .sub { margin:0; color:var(--ink-soft); font-size:16px; }
+  .ornament { display:flex; align-items:center; gap:12px; margin-top:34px; color:var(--gold); font-size:12px; letter-spacing:.24em; text-transform:uppercase; } .ornament::before,.ornament::after { content:""; display:block; width:48px; height:1px; background:var(--gold-line); }
+  #message { min-height:26px; margin:22px 0 12px; font-size:14px; } .ok { color:var(--fern); } .warn { color:var(--gold); } .err { color:var(--rose); } .muted { color:var(--ink-soft); }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; margin:20px 0 24px; }
+  .stat,.card { border:1px solid var(--line); border-radius:var(--radius); background:var(--paper); box-shadow:var(--shadow); } .stat { padding:17px 18px; } .stat-label { color:var(--ink-soft); font-size:12px; letter-spacing:.08em; } .stat-value { margin-top:3px; color:var(--ink); font-size:27px; font-weight:700; }
+  .card { padding:22px 24px; overflow-x:auto; transition:border-color .3s ease,box-shadow .3s ease; } .card:hover { border-color:var(--gold-line); box-shadow:var(--shadow-hover); }
+  .card-top { display:flex; align-items:baseline; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-bottom:16px; } h2 { margin:0; font-size:22px; letter-spacing:.07em; } h2::before { content:"❧ "; color:var(--gold); }
+  table { width:100%; min-width:800px; border-collapse:collapse; font-size:14px; } th,td { padding:12px 9px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; } th { color:var(--ink-soft); font-size:12px; font-weight:400; letter-spacing:.08em; } tr:last-child td { border-bottom:0; }
+  .pill { display:inline-block; padding:3px 9px; border:1px solid var(--gold-line); border-radius:7px; background:var(--paper-deep); color:var(--gold); font-size:12px; } .pill.ok { color:var(--fern); border-color:rgba(61,92,61,.45); } .pill.warn { color:var(--gold); } .pill.err { color:var(--rose); border-color:rgba(107,58,58,.45); }
+  .empty { padding:30px 8px; color:var(--ink-soft); text-align:center; }
+  footer { display:flex; justify-content:space-between; gap:16px; margin-top:70px; padding-top:18px; border-top:1px solid var(--line); color:var(--ink-soft); font-size:12px; letter-spacing:.08em; } footer a { color:var(--gold); text-decoration:none; } footer a:hover { color:var(--ink); text-decoration:underline; text-underline-offset:4px; }
+  @media (max-width:700px) { .page { padding:18px 16px 52px; } .topbar { align-items:flex-start; flex-direction:column; gap:16px; } .actions { justify-content:flex-start; } h1 { margin-top:42px; } .card { padding:18px; } footer { flex-direction:column; margin-top:54px; } }
+  @media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none !important; } }
+</style>
+</head>
+<body>
+<main class="page">
+  <header class="topbar">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="M24 43V9M24 30c-7-1-12-5-13-12 7 0 12 4 13 12Zm0-8c7-1 12-5 13-12-7 0-12 4-13 12Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M24 15c-3-4-3-8 0-12 3 4 3 8 0 12Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      <div><span class="brand-name">DOMAIN WATCH</span><span class="brand-latin">Field monitor</span></div>
+    </div>
+    <nav class="actions"><a class="button secondary" href="/">域名查询</a><a class="button secondary" href="/settings">设置</a><button class="button secondary" id="refresh">刷新状态</button><button class="button" id="check">立即检查</button><button class="button accent" id="test">测试 Telegram</button><button class="button secondary" id="logout">退出</button></nav>
+  </header>
+  <div class="ornament">Specimen Monitor</div>
+  <h1>域名监控</h1>
+  <p class="sub">到期状态、提醒记录与 Telegram 通知。</p>
+  <div id="message" aria-live="polite"></div>
+  <section class="stats" aria-label="监控概览">
+    <div class="stat"><div class="stat-label">监控域名</div><div class="stat-value" id="total">—</div></div>
+    <div class="stat"><div class="stat-label">正常</div><div class="stat-value ok" id="normal">—</div></div>
+    <div class="stat"><div class="stat-label">即将到期</div><div class="stat-value warn" id="expiring">—</div></div>
+    <div class="stat"><div class="stat-label">已过期</div><div class="stat-value err" id="expired">—</div></div>
+    <div class="stat"><div class="stat-label">Telegram</div><div class="stat-value" id="telegram">—</div></div>
+  </section>
+  <section class="card"><div class="card-top"><h2>监控列表</h2><div class="muted" id="updated">尚未刷新</div></div><div id="content" class="empty">正在加载…</div></section>
+  <footer><span>Domain Watch · Private Herbarium</span><span>每 60 秒自动刷新</span></footer>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const stateNames = { ok:"正常", expiring:"即将到期", expired:"已过期", unknown:"信息不完整", failed:"查询失败" };
+const stateClasses = { ok:"ok", expiring:"warn", expired:"err", unknown:"", failed:"err" };
+function esc(value) { return String(value ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+function setMessage(text, kind) { $("message").innerHTML = text ? `<span class="${esc(kind || "")}">${esc(text)}</span>` : ""; }
+function daysText(item) { if (item.daysLeft === null || item.daysLeft === undefined) return "—"; if (item.daysLeft < 0) return `已过期 ${Math.abs(item.daysLeft)} 天`; if (item.daysLeft === 0) return "今天到期"; return `剩余 ${item.daysLeft} 天`; }
+function render(data) { const s=data.summary||{}; $("total").textContent=s.total??0; $("normal").textContent=s.ok??0; $("expiring").textContent=s.expiring??0; $("expired").textContent=s.expired??0; $("telegram").textContent=data.telegramConfigured?"已配置":"未配置"; $("telegram").className="stat-value "+(data.telegramConfigured?"ok":"warn"); $("updated").textContent=data.checkedAt?"最后刷新："+new Date(data.checkedAt).toLocaleString("zh-CN"):"尚未刷新"; const items=data.items||[]; if(!items.length){$("content").className="empty";$("content").textContent="没有配置监控域名，请设置 website/.env 中的 DOMAINS。";return;} $("content").className=""; $("content").innerHTML="<table><thead><tr><th>域名</th><th>状态</th><th>到期时间</th><th>剩余时间</th><th>来源</th><th>最近提醒</th></tr></thead><tbody>"+items.map(item=>{if(!item.ok)return `<tr><td><b>${esc(item.domain)}</b></td><td><span class="pill err">${esc(stateNames.failed)}</span></td><td colspan="4" class="err">${esc(item.error?.message||"查询失败")}</td></tr>`;const reminded=item.remindedAt?new Date(item.remindedAt).toLocaleString("zh-CN"):"—";return `<tr><td><b>${esc(item.domain)}</b></td><td><span class="pill ${esc(stateClasses[item.state]||"")}">${esc(stateNames[item.state]||item.state)}</span></td><td>${esc(item.expirationDate||"—")}</td><td>${esc(daysText(item))}</td><td>${esc(item.source||"—")}</td><td class="muted">${esc(reminded)}</td></tr>`;}).join("")+"</tbody></table>"; }
+async function load() { $("refresh").disabled=true; try { const response=await fetch("/api/monitor",{headers:{Accept:"application/json"}}); if(response.status===401){location.href="/login?next=/monitor";return;} const data=await response.json(); if(!response.ok||data.ok===false&&data.error)throw new Error(data.error.message||"加载失败"); render(data); setMessage(""); } catch(error) { $("content").className="empty err"; $("content").textContent="加载失败："+error.message; } finally { $("refresh").disabled=false; } }
+async function post(path,label) { const button=path.includes("check")?$("check"):$("test"); button.disabled=true; try { const response=await fetch(path,{method:"POST"}); if(response.status===401){location.href="/login?next=/monitor";return;} const data=await response.json(); if(!response.ok||data.ok===false)throw new Error(data.error?.message||data.message||"操作失败"); setMessage(label+"成功","ok"); await load(); } catch(error) { setMessage(label+"失败："+error.message,"err"); } finally { button.disabled=false; } }
+$("refresh").addEventListener("click",load); $("check").addEventListener("click",()=>post("/api/check","立即检查")); $("test").addEventListener("click",()=>post("/api/test-notify","Telegram 测试通知")); $("logout").addEventListener("click",async()=>{await fetch("/api/auth/logout",{method:"POST"});location.href="/login";}); load(); setInterval(load,60000);
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "domain-watch",
+  "version": "1.0.3",
+  "private": true,
+  "description": "域名监控独立网站：RDAP/WHOIS 查询、到期提醒、过期抢注提醒与 Telegram 通知。",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "website:build": "esbuild website/server.mjs --bundle --platform=node --target=node20 --format=cjs --outfile=website/dist/server.cjs",
+    "website:start": "node --env-file=.env website/dist/server.cjs",
+    "website:dev": "npm run website:build && node --env-file=.env website/dist/server.cjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "typescript": "^5.0.0"
+  },
+  "license": "MIT"
+}
