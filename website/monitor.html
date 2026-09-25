@@ -26,9 +26,18 @@
   table { width:100%; min-width:800px; border-collapse:collapse; font-size:14px; } th,td { padding:12px 9px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; } th { color:var(--ink-soft); font-size:12px; font-weight:400; letter-spacing:.08em; } tr:last-child td { border-bottom:0; }
   .pill { display:inline-block; padding:3px 9px; border:1px solid var(--gold-line); border-radius:7px; background:var(--paper-deep); color:var(--gold); font-size:12px; } .pill.ok { color:var(--fern); border-color:rgba(61,92,61,.45); } .pill.warn { color:var(--gold); } .pill.err { color:var(--rose); border-color:rgba(107,58,58,.45); }
   .empty { padding:30px 8px; color:var(--ink-soft); text-align:center; }
+  .add-form { display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap; margin:0 0 18px; padding:14px 16px; border:1px dashed var(--gold-line); border-radius:var(--radius); background:var(--paper-deep); }
+  .add-form input { flex:1 1 240px; min-height:44px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius); outline:none; background:var(--paper); color:var(--ink); font:inherit; font-size:15px; } .add-form input:focus { border-color:var(--gold); box-shadow:0 0 0 2px rgba(139,105,20,.12); } .add-form input::placeholder { color:var(--ink-soft); }
+  .add-form .button { flex:0 0 auto; }
+  .link-btn { padding:2px 0; border:0; background:none; color:var(--rose); font:inherit; font-size:13px; letter-spacing:.04em; text-decoration:underline; text-underline-offset:3px; cursor:pointer; } .link-btn:hover { color:var(--ink); } .link-btn:disabled { color:var(--ink-soft); cursor:default; text-decoration:none; }
+  .toasts { position:fixed; top:18px; right:18px; z-index:60; display:flex; flex-direction:column; gap:10px; width:min(360px,calc(100vw - 36px)); pointer-events:none; }
+  .toast { pointer-events:auto; display:flex; align-items:flex-start; gap:10px; padding:12px 14px; border:1px solid var(--line); border-left:4px solid var(--fern); border-radius:var(--radius); background:var(--paper); box-shadow:var(--shadow-hover); color:var(--ink); font-size:14px; line-height:1.55; animation:toast-in .26s ease both; transition:opacity .2s ease,transform .2s ease; }
+  .toast.err { border-left-color:var(--rose); } .toast .toast-icon { flex:none; font-size:14px; line-height:1.5; color:var(--fern); } .toast.err .toast-icon { color:var(--rose); }
+  .toast .toast-text { flex:1; word-break:break-word; } .toast .toast-close { flex:none; width:22px; height:22px; margin:-2px -4px 0 0; padding:0; border:0; background:transparent; color:var(--ink-soft); font:inherit; font-size:16px; line-height:1; cursor:pointer; border-radius:4px; } .toast .toast-close:hover { color:var(--ink); background:var(--paper-deep); }
+  @keyframes toast-in { from { opacity:0; transform:translateY(-10px); } to { opacity:1; transform:none; } }
   footer { display:flex; justify-content:space-between; gap:16px; margin-top:70px; padding-top:18px; border-top:1px solid var(--line); color:var(--ink-soft); font-size:12px; letter-spacing:.08em; } footer a { color:var(--gold); text-decoration:none; } footer a:hover { color:var(--ink); text-decoration:underline; text-underline-offset:4px; }
   @media (max-width:700px) { .page { padding:18px 16px 52px; } .topbar { align-items:flex-start; flex-direction:column; gap:16px; } .actions { justify-content:flex-start; } h1 { margin-top:42px; } .card { padding:18px; } footer { flex-direction:column; margin-top:54px; } }
-  @media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none !important; } }
+  @media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none !important; } .toast { animation:none; } }
 </style>
 </head>
 <body>
@@ -41,6 +50,7 @@
     <nav class="actions"><a class="button secondary" href="/">域名查询</a><a class="button secondary" href="/settings">设置</a><button class="button secondary" id="refresh">刷新状态</button><button class="button" id="check">立即检查</button><button class="button accent" id="test">测试 Telegram</button><button class="button secondary" id="logout">退出</button></nav>
   </header>
   <div class="ornament">Specimen Monitor</div>
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
   <h1>域名监控</h1>
   <p class="sub">到期状态、提醒记录与 Telegram 通知。</p>
   <div id="message" aria-live="polite"></div>
@@ -51,21 +61,77 @@
     <div class="stat"><div class="stat-label">已过期</div><div class="stat-value err" id="expired">—</div></div>
     <div class="stat"><div class="stat-label">Telegram</div><div class="stat-value" id="telegram">—</div></div>
   </section>
-  <section class="card"><div class="card-top"><h2>监控列表</h2><div class="muted" id="updated">尚未刷新</div></div><div class="muted" id="configLine" style="margin:-4px 0 14px"></div><div id="content" class="empty">正在加载…</div></section>
+  <section class="card">
+    <form class="add-form" id="addForm">
+      <input id="addInput" type="text" placeholder="输入要添加的域名，例如 example.com" aria-label="要添加的域名" autocomplete="off">
+      <button class="button accent" type="submit" id="addButton">添加域名</button>
+    </form>
+    <div class="card-top"><h2>监控列表</h2><div class="muted" id="updated">尚未刷新</div></div><div class="muted" id="configLine" style="margin:-4px 0 14px"></div><div id="content" class="empty">正在加载…</div></section>
   <footer><span>Domain Watch · Private Herbarium</span><span>每 60 秒自动刷新</span></footer>
 </main>
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
+const TOAST_MS = 4200;
+function toast(text, kind = "ok") {
+  const host = $("toasts"); if (!host) return;
+  const bad = kind === "err";
+  const item = document.createElement("div"); item.className = "toast" + (bad ? " err" : "");
+  const icon = document.createElement("span"); icon.className = "toast-icon"; icon.textContent = bad ? "\u2715" : "\u2713";
+  const body = document.createElement("span"); body.className = "toast-text"; body.textContent = text;
+  const close = document.createElement("button"); close.type = "button"; close.className = "toast-close";
+  close.setAttribute("aria-label", "关闭提示"); close.textContent = "\u00d7";
+  item.append(icon, body, close); host.appendChild(item);
+  const remove = () => { item.style.opacity = "0"; item.style.transform = "translateY(-6px)"; setTimeout(() => item.remove(), 200); };
+  const timer = setTimeout(remove, TOAST_MS);
+  item.addEventListener("mouseenter", () => clearTimeout(timer));
+  close.addEventListener("click", () => { clearTimeout(timer); item.remove(); });
+  return item;
+}
+const ok = (text) => toast(text, "ok");
+const fail = (action, error) => toast(action + "失败：" + ((error && error.message) || "未知错误"), "err");
 const stateNames = { ok:"正常", expiring:"即将到期", expired:"已过期", unknown:"信息不完整", failed:"查询失败" };
 const stateClasses = { ok:"ok", expiring:"warn", expired:"err", unknown:"", failed:"err" };
 function esc(value) { return String(value ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
 function setMessage(text, kind) { $("message").innerHTML = text ? `<span class="${esc(kind || "")}">${esc(text)}</span>` : ""; }
 function daysText(item) { if (item.daysLeft === null || item.daysLeft === undefined) return "—"; if (item.daysLeft < 0) return `已过期 ${Math.abs(item.daysLeft)} 天`; if (item.daysLeft === 0) return "今天到期"; return `剩余 ${item.daysLeft} 天`; }
-function render(data) { const s=data.summary||{}; $("total").textContent=s.total??0; $("normal").textContent=s.ok??0; $("expiring").textContent=s.expiring??0; $("expired").textContent=s.expired??0; $("telegram").textContent=data.telegramConfigured?"已配置":"未配置"; $("telegram").className="stat-value "+(data.telegramConfigured?"ok":"warn"); $("updated").textContent=data.checkedAt?"最后刷新："+new Date(data.checkedAt).toLocaleString("zh-CN"):"尚未刷新"; $("configLine").textContent=`配置来源：${data.configSource==="panel"?"设置面板":".env 文件"}　·　每日检查 ${data.checkTime||"—"}　·　提醒窗口 ${data.remindDays??"—"} 天`; const items=data.items||[]; if(!items.length){$("content").className="empty";$("content").innerHTML='没有配置监控域名，请到 <a href="/settings">设置页面</a> 填写。';return;} $("content").className=""; $("content").innerHTML="<table><thead><tr><th>域名</th><th>状态</th><th>到期时间</th><th>剩余时间</th><th>来源</th><th>最近提醒</th></tr></thead><tbody>"+items.map(item=>{if(!item.ok)return `<tr><td><b>${esc(item.domain)}</b></td><td><span class="pill err">${esc(stateNames.failed)}</span></td><td colspan="4" class="err">${esc(item.error?.message||"查询失败")}</td></tr>`;const reminded=item.remindedAt?new Date(item.remindedAt).toLocaleString("zh-CN"):"—";return `<tr><td><b>${esc(item.domain)}</b></td><td><span class="pill ${esc(stateClasses[item.state]||"")}">${esc(stateNames[item.state]||item.state)}</span></td><td>${esc(item.expirationDate||"—")}</td><td>${esc(daysText(item))}</td><td>${esc(item.source||"—")}</td><td class="muted">${esc(reminded)}</td></tr>`;}).join("")+"</tbody></table>"; }
-async function load() { $("refresh").disabled=true; try { const response=await fetch("/api/monitor",{headers:{Accept:"application/json"}}); if(response.status===401){location.href="/login?next=/monitor";return;} const data=await response.json(); if(!response.ok||data.ok===false&&data.error)throw new Error(data.error.message||"加载失败"); render(data); setMessage(""); } catch(error) { $("content").className="empty err"; $("content").textContent="加载失败："+error.message; } finally { $("refresh").disabled=false; } }
+function render(data) { const s=data.summary||{}; $("total").textContent=s.total??0; $("normal").textContent=s.ok??0; $("expiring").textContent=s.expiring??0; $("expired").textContent=s.expired??0; $("telegram").textContent=data.telegramConfigured?"已配置":"未配置"; $("telegram").className="stat-value "+(data.telegramConfigured?"ok":"warn"); $("updated").textContent=data.checkedAt?"最后刷新："+new Date(data.checkedAt).toLocaleString("zh-CN"):"尚未刷新"; $("configLine").textContent=`配置来源：${data.configSource==="panel"?"设置面板":".env 文件"}　·　每日检查 ${data.checkTime||"—"}　·　提醒窗口 ${data.remindDays??"—"} 天`; const items=data.items||[]; if(!items.length){$("content").className="empty";$("content").innerHTML='没有配置监控域名，请到 <a href="/settings">设置页面</a> 填写。';return;} $("content").className=""; $("content").innerHTML="<table><thead><tr><th>域名</th><th>状态</th><th>到期时间</th><th>剩余时间</th><th>来源</th><th>最近提醒</th><th>操作</th></tr></thead><tbody>"+items.map(item=>{if(!item.ok)return `<tr><td><b>${esc(item.domain)}</b></td><td><span class="pill err">${esc(stateNames.failed)}</span></td><td colspan="4" class="err">${esc(item.error?.message||"查询失败")}</td><td><button class="link-btn" data-remove="${esc(item.domain)}" type="button">移除</button></td></tr>`;const reminded=item.remindedAt?new Date(item.remindedAt).toLocaleString("zh-CN"):"—";return `<tr><td><b>${esc(item.domain)}</b></td><td><span class="pill ${esc(stateClasses[item.state]||"")}">${esc(stateNames[item.state]||item.state)}</span></td><td>${esc(item.expirationDate||"—")}</td><td>${esc(daysText(item))}</td><td>${esc(item.source||"—")}</td><td class="muted">${esc(reminded)}</td><td><button class="link-btn" data-remove="${esc(item.domain)}" type="button">移除</button></td></tr>`;}).join("")+"</tbody></table>"; }
+async function load() { $("refresh").disabled=true; try { const response=await fetch("/api/monitor",{headers:{Accept:"application/json"}}); if(response.status===401){location.href="/login?next=/monitor";return;} const data=await response.json(); if(!response.ok||data.ok===false&&data.error)throw new Error(data.error.message||"加载失败"); render(data); setMessage(""); } catch(error) { $("content").className="empty err"; $("content").textContent="加载失败："+error.message; fail("加载监控数据",new Error(error.message)); } finally { $("refresh").disabled=false; } }
 async function post(path,label) { const button=path.includes("check")?$("check"):$("test"); button.disabled=true; try { const response=await fetch(path,{method:"POST"}); if(response.status===401){location.href="/login?next=/monitor";return;} const data=await response.json(); if(!response.ok||data.ok===false)throw new Error(data.error?.message||data.message||"操作失败"); setMessage(label+"成功","ok"); await load(); } catch(error) { setMessage(label+"失败："+error.message,"err"); } finally { button.disabled=false; } }
-$("refresh").addEventListener("click",load); $("check").addEventListener("click",()=>post("/api/check","立即检查")); $("test").addEventListener("click",()=>post("/api/test-notify","Telegram 测试通知")); $("logout").addEventListener("click",async()=>{await fetch("/api/auth/logout",{method:"POST"});location.href="/login";}); load(); setInterval(load,60000);
+$("refresh").addEventListener("click",load); $("check").addEventListener("click",()=>post("/api/check","立即检查")); $("test").addEventListener("click",()=>post("/api/test-notify","Telegram 测试通知")); async function changeDomains(body) {
+  const response = await fetch("/api/settings/monitor/domains", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (response.status === 401) { location.href = "/login?next=/monitor"; return; }
+  const data = await response.json();
+  if (!response.ok || !data.ok) throw new Error(data.error?.message || "操作失败");
+  ok(data.message);
+  setMessage("");
+  await load();
+}
+$("addForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const input = $("addInput");
+  const value = input.value.trim();
+  if (!value) { fail("添加域名", new Error("请先输入域名")); return; }
+  const button = $("addButton");
+  button.disabled = true;
+  try { await changeDomains({ add: value }); input.value = ""; }
+  catch (error) { fail("添加域名", error); }
+  finally { button.disabled = false; }
+});
+$("content").addEventListener("click", async (event) => {
+  const target = event.target.closest("[data-remove]");
+  if (!target) return;
+  const domain = target.getAttribute("data-remove");
+  if (!confirm("确定不再监控 " + domain + "？")) return;
+  target.disabled = true;
+  try { await changeDomains({ remove: domain }); }
+  catch (error) { target.disabled = false; fail("移除域名", error); }
+});
+$("logout").addEventListener("click",async()=>{await fetch("/api/auth/logout",{method:"POST"});location.href="/login";}); load(); setInterval(load,60000);
 </script>
 </body>
 </html>

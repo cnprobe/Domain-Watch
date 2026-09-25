@@ -114,6 +114,8 @@ npm run website:start      # 读取根目录 .env 并启动
 
 查询页右上角有「监控面板」和「管理员」按钮，登录后「管理员」自动变为「设置」。
 
+监控面板顶部可以直接添加域名，列表每行有「移除」按钮，增删即时生效并有右上角结果弹窗；也可以在设置页的「监控设置」里一次性编辑整个列表。
+
 ## 环境变量
 
 完整列表见 [`.env.example`](.env.example)。
@@ -240,6 +242,7 @@ docker run --rm \
 | `PUT /api/settings/monitor` | 登录 | 保存监控参数，**保存后立即生效**；传 `{"reset":true}` 恢复为 `.env` 中的值 |
 | `PUT /api/settings/telegram` | 登录 | 保存 Telegram 配置 |
 | `GET /api/monitor` | 登录 | 实时查询全部监控域名并返回汇总，不发通知 |
+| `PUT /api/settings/monitor/domains` | 登录 | 增删监控域名：`{"add":"a.com,b.com"}` / `{"remove":"a.com"}`，可同时传；自动去重并清理被移除域名的提醒记录 |
 | `GET /api/status` | 登录 | 监控参数与 Telegram 是否已配置 |
 | `POST /api/test-notify` | 登录 | 发送测试通知 |
 | `POST /api/check` | 登录 | 立即检查；`?simulate=expired` 可测试抢注分支 |
@@ -275,10 +278,11 @@ docker run --rm \
 | `invalid_data_dir` | 500 | `DATA_DIR` 未配置 |
 | `not_found` | 404 | 页面或接口不存在 |
 | `invalid_domain` / `invalid_argument` | 400 | 域名参数为空或非法 |
-| `invalid_domains` | 400 | 监控域名内容为空格式错误或超过 4000 字符 |
+| `invalid_domains` | 400 | 监控域名内容为空、格式错误或超过 4000 字符 |
+| `no_domain_change` | 400 | 要添加的域名已存在，或要移除的域名不在列表中 |
 | `invalid_check_time` | 400 | 检查时间不是 `HH:mm` 格式 |
+| `invalid_telegram_api_base` | 400 | Telegram API 地址格式错误（缺协议、含空格/账号密码/查询参数、主机名不完整、粘贴错位） |
 | `invalid_remind_days` | 400 | 提前提醒天数不是数字 |
-| `unsupported_tld` | 422 | 后缀没有可用的 RDAP 或 WHOIS 服务 |
 | `rate_limited` | 429 | 上游 WHOIS 服务限流 |
 | `timeout` / `network_error` / `http_error` / `parse_error` | 502 | 上游查询失败 |
 | `bootstrap_error` | 502 | IANA 引导文件加载失败 |

@@ -299,6 +299,22 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, logger =
     }
   }
 
+  /** 移除域名时同步清掉它的提醒去重记录，避免重新添加后被误判为"已提醒过" */
+  async function forgetDomains(list) {
+    const targets = (Array.isArray(list) ? list : [list]).map((item) => String(item || "").trim()).filter(Boolean);
+    if (targets.length === 0) return [];
+    const records = await loadState();
+    const removed = [];
+    for (const domain of targets) {
+      if (records[domain]) {
+        delete records[domain];
+        removed.push(domain);
+      }
+    }
+    if (removed.length > 0) await saveState();
+    return removed;
+  }
+
   function isDue(now) {
     return now.getHours() === checkTime.hour && now.getMinutes() === checkTime.minute;
   }
@@ -433,5 +449,5 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, logger =
     };
   }
 
-  return { check, snapshot, start, stop, status, applyConfig, currentConfig };
+  return { check, snapshot, start, stop, status, applyConfig, currentConfig, forgetDomains };
 }

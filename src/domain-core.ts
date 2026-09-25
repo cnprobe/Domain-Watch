@@ -411,7 +411,7 @@ function resolveTld(map: BootstrapMap, ascii: string): { tld: string; urls: stri
 
 /**
  * 完整查询流程：归一化 → IDN 转 punycode → 匹配 TLD 引导 → RDAP 查询 → 结构化结果。
- * 抛错（带 code）：invalid_domain / unsupported_tld / not_found / timeout / network_error / ...
+ * 抛错（带 code）：invalid_domain / not_found / timeout / network_error / http_error / parse_error / ...
  */
 async function queryDomain(domain: string): Promise<Record<string, unknown>> {
   const input = normalizeDomainInput(domain);

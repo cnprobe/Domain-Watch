@@ -70,7 +70,6 @@ function bearerToken(req) {
 function statusForError(code) {
   if (code === "not_found") return 404;
   if (code === "invalid_domain" || code === "invalid_argument") return 400;
-  if (code === "unsupported_tld") return 422;
   return 502;
 }
 
@@ -442,6 +441,79 @@ async function main() {
         sendJson(res, 200, { ok: true, monitorConfig: saved, monitor: monitor.status(), message: "监控配置已保存并立即生效" });
       } catch (error) {
         sendJson(res, error?.code === "invalid_credentials" ? 403 : 400, errorBody(error));
+      }
+      return;
+    }
+
+    if (req.method === "PUT" && url.pathname === "/api/settings/monitor/domains") {
+      const auth = requireApiAuth(req, res);
+      if (!auth || !requireSameOriginForSession(req, res, auth)) return;
+      try {
+        const body = await readJsonBody(req);
+        const current = await settingsStore.getMonitorSettings();
+        const list = domainWatch.parseDomains(current.domains || "");
+
+        const added = [];
+        if (body.add !== undefined && String(body.add).trim() !== "") {
+          const raw = String(body.add);
+          if (raw.length > DOMAINS_MAX_LENGTH) {
+            throw fail("invalid_domains", `域名内容过长（最多 ${DOMAINS_MAX_LENGTH} 字符）`);
+          }
+          const parsed = domainWatch.parseDomains(raw);
+          if (parsed.length === 0) {
+            throw fail("invalid_domains", `无法识别为域名：${raw.trim().slice(0, 60)}`);
+          }
+          for (const domain of parsed) {
+            if (!list.includes(domain)) {
+              list.push(domain);
+              added.push(domain);
+            }
+          }
+        }
+
+        const removed = [];
+        if (body.remove !== undefined && String(body.remove).trim() !== "") {
+          const targets = domainWatch.parseDomains(String(body.remove));
+          if (targets.length === 0) {
+            throw fail("invalid_domains", `无法识别为域名：${String(body.remove).trim().slice(0, 60)}`);
+          }
+          for (const target of targets) {
+            const index = list.indexOf(target);
+            if (index >= 0) {
+              list.splice(index, 1);
+              removed.push(target);
+            }
+          }
+        }
+
+        if (added.length === 0 && removed.length === 0) {
+          sendJson(res, 400, errorBody({
+            code: "no_domain_change",
+            message: body.add !== undefined && !added.length
+              ? "要添加的域名已在监控列表中"
+              : "要移除的域名不在监控列表中",
+          }));
+          return;
+        }
+
+        const saved = await settingsStore.setMonitorSettings({ ...current, domains: list.join(",") });
+        monitor.applyConfig({ ...saved, source: "panel" });
+        if (removed.length > 0) await monitor.forgetDomains(removed);
+
+        const parts = [];
+        if (added.length > 0) parts.push(`已添加 ${added.join("、")}`);
+        if (removed.length > 0) parts.push(`已移除 ${removed.join("、")}`);
+        console.log(`[domain-watch] 监控域名变更（设置面板）: ${parts.join("；")}`);
+        sendJson(res, 200, {
+          ok: true,
+          monitorConfig: saved,
+          monitor: monitor.status(),
+          added,
+          removed,
+          message: `${parts.join("，")}，当前共 ${list.length} 个域名`,
+        });
+      } catch (error) {
+        sendJson(res, 400, errorBody(error));
       }
       return;
     }
