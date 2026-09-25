@@ -318,8 +318,8 @@ docker run --rm \
 工作流 [`.github/workflows/docker.yml`](.github/workflows/docker.yml) **只在推送版本标签时**运行，日常推送分支和 Pull Request 都不构建。
 
 ```sh
-git tag v1.0.0
-git push origin v1.0.0
+git tag v0.0.2
+git push origin v0.0.2
 ```
 
 推送后发布到 `ghcr.io/cnprobe/domain-watch`：
@@ -327,7 +327,7 @@ git push origin v1.0.0
 | 标签 | 含义 |
 | --- | --- |
 | `latest` | 最近一次推送的版本标签 |
-| `v1.0.0` | Git 版本标签 |
+| `v0.0.2` | Git 版本标签 |
 | `<commit-sha>` | 精确提交 |
 
 镜像同时构建 `linux/amd64` 与 `linux/arm64`。
