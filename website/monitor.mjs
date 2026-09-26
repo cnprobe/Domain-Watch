@@ -205,7 +205,9 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, settings
 
   async function check(simulateExpired = false, source = "手动检查") {
     if (running) {
-      return { ok: false, checked: 0, reminded: [], skipped: [], failed: ["已有检查任务正在运行"] };
+      // busy 让调用方能把「请求被拒绝」与「检查跑完但有域名失败」区分开：
+      // 前者是 409，后者是 200 + 逐域名结果，不该混成同一个 5xx
+      return { ok: false, busy: true, checked: 0, reminded: [], skipped: [], failed: ["已有检查任务正在运行"] };
     }
 
     running = true;

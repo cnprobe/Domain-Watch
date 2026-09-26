@@ -115,17 +115,24 @@ const UPSTREAM_CODES = new Set([
   "network_error",
   "timeout",
   "http_error",
+  "parse_error",
+  "not_found",
+  "invalid_argument",
   "rate_limited",
   "bootstrap_error",
 ]);
 
-/** 手动检查的结果状态码：全部成功 200，只缺 Telegram 配置 400，上游失败 502，其余 500 */
+/**
+ * 手动检查的结果状态码。
+ *
+ * 检查跑完就是 200：逐个域名查询失败属于**结果数据**，不是请求失败——响应体里
+ * 已经有 reminded / skipped / failed / failedCodes，前端据此展示即可。100 个域名
+ * 里挂 1 个就回 5xx，会让「提醒已发出」这个事实连同全部细节一起丢掉。
+ * 只有「请求本身没被受理」才用非 2xx：已有任务在跑是 409。
+ */
 function statusForCheckResult(result) {
-  if (result?.ok) return 200;
-  const codes = Array.isArray(result?.failedCodes) ? result.failedCodes : [];
-  if (codes.length > 0 && codes.every((code) => code === "telegram_not_configured")) return 400;
-  if (codes.some((code) => UPSTREAM_CODES.has(code))) return 502;
-  return 500;
+  if (result?.busy) return 409;
+  return 200;
 }
 
 /** 校验并规范化 Telegram Bot API 地址，避免粘贴错误变成难懂的 ENOTFOUND */
