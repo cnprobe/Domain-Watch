@@ -9,7 +9,6 @@
     --ink: #2d4a2d;
     --ink-soft: #5d705d;
     --gold: #8b6914;
-    --gold-soft: #b08b3c;
     --paper: #faf5ef;
     --paper-deep: #f4ede3;
     --rose: #6b3a3a;
@@ -47,24 +46,7 @@
   .brand-name { display: block; font-size: 19px; font-weight: 700; letter-spacing: .12em; }
   .brand-latin { display: block; margin-top: 1px; color: var(--gold); font-size: 12px; font-style: italic; letter-spacing: .08em; }
   .admin-area { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
-  .button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 46px;
-    padding: 11px 20px;
-    border: 1px solid var(--gold-line);
-    border-radius: var(--radius);
-    background: var(--ink);
-    color: var(--paper);
-    font: inherit;
-    font-size: 15px;
-    letter-spacing: .06em;
-    text-decoration: none;
-    cursor: pointer;
-    box-shadow: var(--shadow);
-    transition: background-color .3s ease, color .3s ease, border-color .3s ease, box-shadow .3s ease;
-  }
+  .button { display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:10px 15px; border:1px solid var(--gold-line); border-radius:var(--radius); background:var(--ink); color:var(--paper); font:inherit; font-size:14px; letter-spacing:.04em; text-decoration:none; cursor:pointer; box-shadow:var(--shadow); transition:background-color .3s ease,color .3s ease,border-color .3s ease,box-shadow .3s ease; }
   .button:hover, .button:focus-visible { border-color: var(--gold); background: var(--paper-deep); color: var(--ink); box-shadow: var(--shadow-hover); }
   .button.accent { background: var(--gold); color: var(--paper); border-color: var(--gold); }
   .button.accent:hover, .button.accent:focus-visible { background: var(--ink); color: var(--paper); }
