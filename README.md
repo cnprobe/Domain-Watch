@@ -169,6 +169,101 @@ npm run website:start      # 读取根目录 .env 并启动
 
 页面文件路径默认相对当前工作目录解析：容器内为 `/app`，本地运行为仓库根目录。
 
+### 登录防护（防暴力破解）
+
+`POST /api/auth/login` 是唯一无需登录的写入口，因此同时按**来源 IP** 和**账号**两层累计失败次数：
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `LOGIN_IP_MAX_FAILURES` | `5` | 同一来源 IP 在窗口内允许的失败次数 |
+| `LOGIN_IP_WINDOW_MINUTES` | `15` | IP 级统计窗口（分钟） |
+| `LOGIN_ACCOUNT_MAX_FAILURES` | `10` | 同一账号在窗口内允许的失败次数，**跨所有来源 IP 累计** |
+| `LOGIN_ACCOUNT_WINDOW_MINUTES` | `30` | 账号级统计窗口（分钟），应明显长于 IP 级 |
+| `TRUST_PROXY` | `false` | 仅当服务确实在你自己的反向代理后面时设为 `true` |
+
+要点：
+
+- **账号级是抵御分布式字典攻击的关键**。只按 IP 限制时，攻击者轮换 IP（或 IPv6 地址）即可无限次尝试；两层同时生效才能堵住。
+- **`TRUST_PROXY` 默认为 `false`，此时 `X-Forwarded-For` 被忽略**。若无条件信任该请求头，攻击者每次换一个伪造 IP 就能完全绕过 IP 级限制。放在 nginx / Caddy 后面时需要显式开启，具体做法见下节。
+- 触发上限后返回 `429` 与 `Retry-After`，响应体不区分是 IP 还是账号被锁，避免被反过来探测。
+- 用户名不存在时也会执行一次口令散列，两种失败的响应时间一致，无法用来枚举用户名。
+- 计数只保存在内存，容器重启即清零；这样即使误锁也不会把管理员永久挡在门外。登录成功会同时清零两层计数。
+- 每层最多跟踪 512 个键，被随机用户名/地址灌入时会淘汰最久未使用的记录，不会无限增长。
+
+#### 放在反向代理后面时必须做什么
+
+容器本身只提供 HTTP。要公网访问通常要自己套一层 nginx / Caddy / Cloudflare Tunnel，这时有**两件事必须做，缺一不可**。
+
+**第一步：开启 `TRUST_PROXY=true`**
+
+不开的话，应用看到的所有请求都来自代理自己的容器地址，于是**所有人共用一个失败计数**——任何人输错 5 次密码，你自己的正确密码也会被 429 挡在门外。
+
+```yaml
+services:
+  domain-watch:
+    image: ghcr.io/cnprobe/domain-watch:latest
+    environment:
+      TRUST_PROXY: "true"        # 让应用按 X-Forwarded-For 识别真实来源
+      COOKIE_SECURE: "true"      # 走 HTTPS 后会话 Cookie 才有 Secure 标记
+    ports:
+      - "127.0.0.1:3000:3000"    # 只监听回环地址，公网流量一律走代理
+```
+
+**第二步：让代理把真实来源写进 `X-Forwarded-For`**
+
+应用读取该头链的**最后一段**（最靠近客户端的那一跳），所以代理用「覆盖」还是「追加」写法都能得到正确地址。
+
+nginx（推荐覆盖写法，最直观）：
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name watch.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        # 覆盖而非追加：客户端伪造的同名头会被这里冲掉
+        proxy_set_header X-Forwarded-For   $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+nginx（沿用默认追加写法也可以）：
+
+```nginx
+        # $proxy_add_x_forwarded_for 是追加语义，但应用只取最后一段，
+        # 最后一段仍是 $remote_addr，结果与覆盖写法一致
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+```
+
+Caddy 不用额外配置，反代会自动带上正确的 `X-Forwarded-For`：
+
+```
+watch.example.com {
+    reverse_proxy 127.0.0.1:3000
+}
+```
+
+**自查清单**
+
+| 检查项 | 期望结果 |
+| --- | --- |
+| `docker exec <容器> printenv TRUST_PROXY` | `TRUST_PROXY=true` |
+| 用另一台机器故意输错 5 次密码，再用正确密码登录 | 仍能登录，说明按真实 IP 计数 |
+| 故意输错 5 次后等 15 分钟 | 恢复可登录 |
+| `curl -I https://watch.example.com/healthz` | `200`，容器日志无异常 |
+| 浏览器登录 | 正常跳转 `/monitor` |
+
+**常见问题**
+
+- **所有人输错几次就一起被锁**：`TRUST_PROXY` 没开，或代理没把 `X-Forwarded-For` 传过来。抓包确认该头存在再排查。
+- **锁了之后自己也进不去**：等窗口过期（IP 级 15 分钟、账号级 30 分钟），或重启容器——计数只在内存。或用 `RESET_ADMIN_PASSWORD=true` 重置密码。
+- **日志出现「登录被临时锁定（账号级）」**：同一账号从多个来源累计失败过多，通常是真的有人在猜密码，建议同时把密码改到 16 位以上。
+- **前面还套了 Cloudflare**：把 `CF-Connecting-IP` 写进 `X-Forwarded-For` 再开 `TRUST_PROXY`，例如 `proxy_set_header X-Forwarded-For $http_cf_connecting_ip;`。
+
 ### 监控
 
 | 变量 | 默认值 | 说明 |
@@ -316,7 +411,7 @@ docker run --rm \
 | `POST /api/auth/login` | 公开 | 登录，成功后下发 `dw_session` Cookie |
 | `POST /api/auth/logout` | 登录 | 退出登录 |
 | `GET /api/auth/me` | 登录 | 当前账号信息 |
-| `POST /api/auth/change-credentials` | 登录 | 修改用户名和密码，**需当前密码**（改的是登录凭据本身）；省略的字段保持原值，成功后当前会话失效 |
+| `POST /api/auth/change-credentials` | 登录 | 修改用户名和密码，**需当前密码**（改的是登录凭据本身）；省略的字段保持原值，传入 `confirmPassword` 时会校验两次是否一致，成功后当前会话失效 |
 | `GET /api/settings` | 登录 | 读取设置（不回显 Token），含 `monitorConfig`（面板可编辑的监控参数）和 `monitor`（当前生效值） |
 | `PUT /api/settings/monitor` | 登录 | 保存监控参数，**保存后立即生效**；未提供的字段沿用当前值，可只改其中一项；传 `{"reset":true}` 恢复为 `.env` 中的值 |
 | `GET /api/settings/rdap` | 登录 | 读取 RDAP 映射配置（面板层 / 文件层 / 合并结果） |
@@ -367,7 +462,7 @@ docker run --rm \
 | `invalid_json` | 400 | 请求体不是合法 JSON |
 | `payload_too_large` | 413 | 请求体超过 1 MB |
 | `csrf_rejected` | 403 | 写操作来源不同源 |
-| `too_many_attempts` | 429 | 登录失败次数过多 |
+| `too_many_attempts` | 429 | 登录失败次数过多（IP 级或账号级触发，见「登录防护」），带 `Retry-After` 头 |
 | `telegram_not_configured` | 400 | 未配置 Telegram |
 | `telegram_error` | 502 | Telegram API 返回失败 |
 | `telegram_network_error` | 502 | 无法连接 Telegram |
@@ -453,6 +548,9 @@ npm run website:dev   # 重新打包并启动
 - 首次登录后立即修改随机密码。
 - `RESET_ADMIN_PASSWORD` 只临时用一次，用完改回 `false`。
 - 公网部署建议加 HTTPS 反向代理并设置 `COOKIE_SECURE=true`，同时对 `/api/whois` 限流。
+- 用了反向代理就必须设 `TRUST_PROXY=true` 并让代理传 `X-Forwarded-For`，否则所有来源算作同一个 IP，一人输错全员被锁。完整配置见「登录防护 → 放在反向代理后面时必须做什么」。
+- 被锁定时看容器日志：会出现「登录被临时锁定」和「登录连续失败 N 次」，据此判断是否有人在猜密码。
+- 密码至少 12 位（初始随机密码 24 位），scrypt 单次校验约 60ms，字典攻击成本很高。
 - 忘记密码：`.env` 中设 `RESET_ADMIN_PASSWORD=true`，重启后从日志取新密码，再改回 `false`。
 - 能读取 Docker 日志或数据卷的人应视为管理员。
 - Telegram Bot Token 泄露后立即在 BotFather 撤销并重新生成。

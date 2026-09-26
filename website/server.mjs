@@ -5,6 +5,7 @@ import { timingSafeEqual } from "node:crypto";
 import { createDomainWatch } from "./domain-watch.mjs";
 import { createMonitor, isValidCheckTime, REMIND_DAYS_MAX, REMIND_DAYS_MIN, DOMAINS_MAX_LENGTH, TelegramNotifier } from "./monitor.mjs";
 import { SettingsStore, clearSessionCookie, fail, parseCookies, sessionCookie } from "./auth.mjs";
+import { createLoginGuard, normalizeIp } from "./login-guard.mjs";
 
 const rootDir = process.cwd();
 const dataDir = resolve(process.env.DATA_DIR || join(rootDir, "data"));
@@ -17,8 +18,22 @@ const host = process.env.HOST || "0.0.0.0";
 // 默认全站私有：只有 /login、/api/auth/login 和 /healthz 公开，查询页需要登录
 const publicQuery = envBoolean(process.env.PUBLIC_QUERY, false);
 const cookieSecure = envBoolean(process.env.COOKIE_SECURE, false);
-const loginWindowMs = 15 * 60 * 1000;
-const loginMaxFailures = 5;
+// 登录暴力破解防护：默认全站私有，登录是唯一的公开入口，需要更严格的限流
+const loginGuard = createLoginGuard({
+  ipMaxFailures: envNumber(process.env.LOGIN_IP_MAX_FAILURES, 5),
+  ipWindowMs: envNumber(process.env.LOGIN_IP_WINDOW_MINUTES, 15) * 60 * 1000,
+  // 账号级限制是抵御「换 IP 逐个试」的关键，窗口也比 IP 级长
+  accountMaxFailures: envNumber(process.env.LOGIN_ACCOUNT_MAX_FAILURES, 10),
+  accountWindowMs: envNumber(process.env.LOGIN_ACCOUNT_WINDOW_MINUTES, 30) * 60 * 1000,
+});
+// 只有确定自己坐在反向代理后面时才信任 X-Forwarded-For，
+// 否则攻击者伪造这个头就能绕过按 IP 的限流
+const trustProxy = envBoolean(process.env.TRUST_PROXY, false);
+
+function envNumber(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 function envBoolean(value, fallback) {
   if (value === undefined || value === null || value === "") return fallback;
@@ -156,9 +171,18 @@ function redirect(res, location) {
 }
 
 function clientIp(req) {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string" && forwarded) return forwarded.split(",")[0].trim();
-  return req.socket.remoteAddress || "unknown";
+  if (trustProxy) {
+    const forwarded = req.headers["x-forwarded-for"];
+    if (typeof forwarded === "string" && forwarded) {
+      // 取最后一段：反代默认是「追加」而不是「覆盖」（nginx 的
+      // $proxy_add_x_forwarded_for 就是追加），此时第一段是客户端自己塞进去的，
+      // 只有最后一段才是代理实际看到的来源地址。
+      // 如果你的代理用覆盖写法（$remote_addr），整条链只有一个值，结果相同。
+      const chain = forwarded.split(",").map((part) => normalizeIp(part)).filter(Boolean);
+      if (chain.length > 0) return chain[chain.length - 1];
+    }
+  }
+  return normalizeIp(req.socket.remoteAddress) || "unknown";
 }
 
 function sameOrigin(req) {
@@ -219,7 +243,6 @@ async function main() {
   const monitorConfig = await settingsStore.getMonitorSettings();
   const monitor = createMonitor({ config: monitorConfig, domainWatch, notifier, dataDir });
   const legacyAdminToken = String(process.env.ADMIN_TOKEN || "").trim();
-  const loginAttempts = new Map();
   let publicHtml = { value: null };
   let monitorHtml = { value: null };
   let loginHtml = { value: null };
@@ -311,26 +334,15 @@ async function main() {
     return true;
   }
 
-  function loginAllowed(ip) {
-    const record = loginAttempts.get(ip);
-    if (!record || Date.now() - record.startedAt > loginWindowMs) {
-      loginAttempts.delete(ip);
-      return true;
-    }
-    return record.failures < loginMaxFailures;
-  }
-
-  function recordLoginFailure(ip) {
-    const current = loginAttempts.get(ip);
-    if (!current || Date.now() - current.startedAt > loginWindowMs) {
-      loginAttempts.set(ip, { failures: 1, startedAt: Date.now() });
-    } else {
-      current.failures++;
-    }
-  }
-
-  function clearLoginFailures(ip) {
-    loginAttempts.delete(ip);
+  /** 锁定时统一返回 429，并带上 Retry-After；响应体不区分是 IP 还是账号被锁 */
+  function denyLogin(res, verdict, context) {
+    const retryAfter = Math.max(1, Math.ceil(verdict.retryAfterMs / 1000));
+    res.setHeader("Retry-After", String(retryAfter));
+    console.warn(
+      `[domain-watch] 登录被临时锁定（${verdict.layer === "account" ? "账号级" : "来源 IP"}）：` +
+        `${context}，剩余约 ${Math.ceil(verdict.retryAfterMs / 60000)} 分钟`
+    );
+    sendJson(res, 429, errorBody({ code: "too_many_attempts", message: "登录失败次数过多，请稍后再试" }));
   }
 
   function cookieOptions(req, maxAge) {
@@ -361,19 +373,32 @@ async function main() {
 
     if (req.method === "POST" && url.pathname === "/api/auth/login") {
       const ip = clientIp(req);
-      if (!loginAllowed(ip)) {
-        sendJson(res, 429, errorBody({ code: "too_many_attempts", message: "登录失败次数过多，请稍后再试" }));
+      // 第一道门槛不读请求体，挡住纯粹刷接口的流量
+      const ipVerdict = loginGuard.check({ ip, username: "" });
+      if (!ipVerdict.allowed) {
+        denyLogin(res, ipVerdict, `来源 ${ip}`);
         return;
       }
       try {
         const body = await readJsonBody(req);
+        const username = typeof body.username === "string" ? body.username : "";
+        // 第二道门槛按账号累计，抵御换 IP 的分布式字典攻击
+        const accountVerdict = loginGuard.check({ ip, username });
+        if (!accountVerdict.allowed) {
+          denyLogin(res, accountVerdict, `账号 ${username.slice(0, 32) || "(空)"}`);
+          return;
+        }
         const ok = await settingsStore.authenticate(body.username, body.password);
         if (!ok) {
-          recordLoginFailure(ip);
+          const counts = loginGuard.recordFailure({ ip, username });
+          // 快到上限时提前记一条，方便运维在日志里看到攻击苗头
+          if (counts.ipFailures === loginGuard.policy.ipMaxFailures - 1) {
+            console.warn(`[domain-watch] 登录连续失败 ${counts.ipFailures} 次，来源 ${ip}`);
+          }
           sendJson(res, 401, errorBody({ code: "invalid_credentials", message: "用户名或密码错误" }));
           return;
         }
-        clearLoginFailures(ip);
+        loginGuard.recordSuccess({ ip, username });
         const session = settingsStore.createSession();
         res.setHeader("Set-Cookie", sessionCookie(session.token, cookieOptions(req, session.maxAge)));
         sendJson(res, 200, { ok: true, username: settingsStore.username, redirect: "/monitor" });

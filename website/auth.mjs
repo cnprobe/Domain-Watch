@@ -1,5 +1,6 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
+import { promisify } from "node:util";
 import { join } from "node:path";
 
 const SETTINGS_FILE = "settings.json";
@@ -44,20 +45,44 @@ function validatePassword(value) {
   return password;
 }
 
-function passwordHash(password, salt = randomBytes(16).toString("hex")) {
-  const hash = scryptSync(password, salt, 64).toString("hex");
-  return { salt, hash };
+const SCRYPT_KEYLEN = 64;
+const SCRYPT_SALT_BYTES = 16;
+const scryptAsync = promisify(scrypt);
+
+function passwordHash(password, salt = randomBytes(SCRYPT_SALT_BYTES).toString("hex")) {
+  return scryptAsync(password, salt, SCRYPT_KEYLEN).then((derived) => ({
+    salt,
+    hash: Buffer.from(derived).toString("hex"),
+  }));
 }
 
-function passwordMatches(password, record) {
+/**
+ * 用户名不存在时用来「陪跑」的假记录：形状与真实记录一致，
+ * 让散列照常执行，攻击者无法用响应时间区分「用户不存在」和「密码错误」。
+ */
+const DUMMY_PASSWORD_RECORD = Object.freeze({ salt: "d0".repeat(16), hash: "0".repeat(SCRYPT_KEYLEN * 2) });
+
+async function passwordMatches(password, record) {
   if (!record?.salt || !record?.hash) return false;
   try {
-    const actual = Buffer.from(passwordHash(password, record.salt).hash, "hex");
+    const actual = Buffer.from((await passwordHash(password, record.salt)).hash, "hex");
     const expected = Buffer.from(record.hash, "hex");
     return actual.length === expected.length && timingSafeEqual(actual, expected);
   } catch {
     return false;
   }
+}
+
+/** 恒定时间比较，避免通过比较耗时反推用户名是否存在 */
+function safeEqual(a, b) {
+  const left = Buffer.from(String(a ?? ""), "utf8");
+  const right = Buffer.from(String(b ?? ""), "utf8");
+  if (left.length !== right.length) {
+    // 长度不同时仍然走一次比较，让两条分支的耗时量级一致
+    timingSafeEqual(left, left);
+    return false;
+  }
+  return timingSafeEqual(left, right);
 }
 
 function encryptValue(value, key) {
@@ -133,7 +158,7 @@ export class SettingsStore {
       const password = randomPassword();
       this.data.auth = {
         username,
-        password: passwordHash(password),
+        password: await passwordHash(password),
         sessionSecret: encode(randomBytes(32)),
         createdAt: new Date().toISOString(),
       };
@@ -141,7 +166,7 @@ export class SettingsStore {
       changed = true;
     } else if (envFlag(this.env.RESET_ADMIN_PASSWORD)) {
       const password = randomPassword();
-      this.data.auth.password = passwordHash(password);
+      this.data.auth.password = await passwordHash(password);
       this.data.auth.sessionSecret = encode(randomBytes(32));
       this.data.auth.resetAt = new Date().toISOString();
       this.initialCredentials = { username: this.data.auth.username, password, reason: "reset" };
@@ -336,10 +361,15 @@ export class SettingsStore {
 
   async authenticate(username, password) {
     const auth = this.data.auth;
-    return String(username || "") === auth.username && passwordMatches(String(password || ""), auth.password);
+    const nameMatches = safeEqual(username, auth.username);
+    // 用户名不存在时改用假记录走一遍散列：耗时与「密码错误」一致，
+    // 攻击者无法据此判断哪些用户名是真的
+    const record = nameMatches ? auth.password : DUMMY_PASSWORD_RECORD;
+    const passwordOk = await passwordMatches(String(password || ""), record);
+    return nameMatches && passwordOk;
   }
 
-  async changeCredentials({ currentPassword, username, newPassword }) {
+  async changeCredentials({ currentPassword, username, newPassword, confirmPassword }) {
     if (!(await this.authenticate(this.data.auth.username, currentPassword))) {
       throw fail("invalid_credentials", "当前密码不正确");
     }
@@ -349,10 +379,15 @@ export class SettingsStore {
     if (!wantsUsername && !wantsPassword) {
       throw fail("invalid_argument", "请提供新的用户名或新密码");
     }
+    // 页面本来就会校验两次输入是否一致，这里同样校验一次：
+    // 否则直接调接口时，传错的 confirmPassword 会被静默忽略并真的改掉密码
+    if (confirmPassword !== undefined && String(confirmPassword) !== String(newPassword ?? "")) {
+      throw fail("invalid_argument", "两次输入的新密码不一致");
+    }
     const nextUsername = wantsUsername ? validateUsername(username) : this.data.auth.username;
     const nextPassword = wantsPassword ? validatePassword(newPassword) : null;
     this.data.auth.username = nextUsername;
-    if (nextPassword !== null) this.data.auth.password = passwordHash(nextPassword);
+    if (nextPassword !== null) this.data.auth.password = await passwordHash(nextPassword);
     this.data.auth.sessionSecret = encode(randomBytes(32));
     this.data.auth.updatedAt = new Date().toISOString();
     await this.save();
