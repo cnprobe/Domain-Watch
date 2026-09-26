@@ -108,16 +108,46 @@
   }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
   /* ===== 登录页专属 ===== */
-  body { display: flex; align-items: center; min-height: 100vh; padding: 48px 32px; }
-  .login { width: 100%; max-width: 460px; }
-  .login .wordmark { padding: 0 0 32px; }
+  /* place-items 居中的是 grid **单元格里的盒子**，而 .login 是 width: 100%，
+     盒子占满整行，里面的文字就全靠左了。要让文字落在页面水平中线上，
+     得给 .login 自己加 margin: 0 auto 把盒子收回 max-width。 */
+  body { display: grid; place-items: center; min-height: 100vh; padding: 48px 32px; }
+  .login { width: 100%; max-width: 460px; margin: 0 auto; }
+  .login .wordmark { align-items: center; padding: 0 0 32px; }
+  /* 顶部标识区按整块居中处理：Domain Watch / Private collection / 登录 /
+     单用户监控面板 落在页面水平中线上。正文（表单、提示）仍保持左对齐，
+     这是 Swiss 唯一允许的居中例外——登录页无表格正文，居中的是标题组。 */
+  h1, .sub, .hint { text-align: center; }
   h1 { font-size: clamp(40px, 7vw, 72px); }
   .sub { margin: 12px 0 0; font-size: 15px; color: var(--muted); }
   form { margin-top: 40px; }
+  /* 字段间距：设置页靠 .grid 的 gap，这里没有 grid，用行间距等效处理 */
+  form > div + div { margin-top: 20px; }
+
+  /* 浮动标签：label 覆盖在输入框里，未输入时作提示，一输入就淡出。
+     判据用 :valid —— 两个 input 都有 required，空值即 :invalid、显示提示；
+     有值即 :valid、隐藏提示。不用 placeholder 属性：原生 placeholder 与
+     label 会显示同一句话，聚焦时两者都藏、失焦后一起回来，看着就是重影。
+     :focus 单独兜住「聚焦了但还没输」这一态。 */
+  .field { position: relative; }
+  /* type 必须写全：基础层是 input[type=text] 这类属性选择器，只匹配字面属性值。
+     漏掉 type 的 input 匹配不上，会退回浏览器默认样式（更矮、带 UA 边框），
+     与密码框对不齐。 */
+  .field input { padding-left: 12px; }
+  .field label {
+    position: absolute; left: 12px; right: 12px; top: 50%;
+    transform: translateY(-50%);
+    font-size: 15px; font-weight: 400; letter-spacing: 0; text-transform: none;
+    color: var(--faint); pointer-events: none;
+    transition: opacity 0.15s ease-out;
+  }
+  .field input:focus + label,
+  .field input:valid + label { opacity: 0; }
+
   .button { width: 100%; margin-top: 32px; }
   #message { min-height: 22px; margin-top: 14px; font-size: 14px; }
   .hint { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 13px; }
-  @media (max-width: 860px) { body { align-items: flex-start; padding: 32px 20px; } }
+  @media (max-width: 860px) { body { place-items: start center; padding: 32px 20px; } }
 </style>
 </head>
 <body>
@@ -126,8 +156,14 @@
   <h1>登录</h1>
   <p class="sub">单用户监控面板</p>
   <form id="form">
-    <div><label for="username">用户名</label><input id="username" name="username" autocomplete="username" required autofocus></div>
-    <div><label for="password">密码</label><input id="password" name="password" type="password" autocomplete="current-password" required></div>
+    <div class="field">
+      <input id="username" name="username" type="text" autocomplete="username" required autofocus>
+      <label for="username">用户名</label>
+    </div>
+    <div class="field">
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <label for="password">密码</label>
+    </div>
     <button class="button" id="submit" type="submit">登录</button>
   </form>
   <div id="message" aria-live="polite"></div>

@@ -192,8 +192,32 @@ function render(d) {
   function toggleRaw() { raw.classList.toggle("hidden"); }
   toggle.addEventListener("click", toggleRaw); toggle.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleRaw(); } });
   resultEl.classList.remove("hidden");
+  statusEl.className = "";
 }
-async function query(e) { if (e) e.preventDefault(); const domain = input.value.trim(); if (!domain) { statusEl.className = "error"; statusEl.textContent = "请输入域名"; return; } btn.disabled = true; statusEl.className = ""; statusEl.textContent = "查询中…"; try { const resp = await fetch("/api/whois?domain=" + encodeURIComponent(domain), { headers: { Accept: "application/json" } }); if (resp.status === 401) { location.href = "/login?next=/"; return; } const data = await resp.json(); if (data.ok) { statusEl.textContent = "查询成功"; render(data); } else { statusEl.className = "error"; statusEl.textContent = "查询失败：" + ((data.error && data.error.message) || "未知错误"); resultEl.classList.add("hidden"); } } catch (err) { statusEl.className = "error"; statusEl.textContent = "请求失败：" + String(err && err.message || err); resultEl.classList.add("hidden"); } finally { btn.disabled = false; } }
+async function query(e) {
+  if (e) e.preventDefault();
+  const domain = input.value.trim();
+  if (!domain) {
+    statusEl.className = "error"; statusEl.textContent = "请输入域名";
+    resultEl.innerHTML = ""; resultEl.classList.add("hidden");
+    return;
+  }
+  btn.disabled = true;
+  statusEl.className = ""; statusEl.textContent = "查询中…";
+  // 每次查询都从零开始：清空上一次的卡片，而不是只把它藏起来。
+  // 只加 hidden 的话旧结果仍留在 DOM 里，错误提示会与旧卡片同时显示，
+  // 屏幕阅读器和 Ctrl+F 也还能搜到上一个域名的内容。
+  resultEl.innerHTML = ""; resultEl.classList.add("hidden");
+  try {
+    const resp = await fetch("/api/whois?domain=" + encodeURIComponent(domain), { headers: { Accept: "application/json" } });
+    if (resp.status === 401) { location.href = "/login?next=/"; return; }
+    const data = await resp.json();
+    if (data.ok) { statusEl.textContent = "查询成功"; render(data); }
+    else { statusEl.className = "error"; statusEl.textContent = "查询失败：" + ((data.error && data.error.message) || "未知错误"); }
+  } catch (err) {
+    statusEl.className = "error"; statusEl.textContent = "请求失败：" + String(err && err.message || err);
+  } finally { btn.disabled = false; }
+}
 form.addEventListener("submit", query); input.focus();
 fetch("/api/auth/me").then(function (r) { if (r.ok) { adminLink.href = "/settings"; adminLink.textContent = "设置"; } }).catch(function () {});
 </script>
