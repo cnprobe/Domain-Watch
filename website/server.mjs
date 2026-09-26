@@ -41,9 +41,21 @@ function errorBody(error) {
   };
 }
 
+/** 统一「错误码 → HTTP 状态码」，避免同一错误在不同路由返回不同状态 */
+function statusForError(error, fallback = 400) {
+  const code = typeof error === "string" ? error : error?.code;
+  if (code === "payload_too_large") return 413;
+  if (code === "too_many_attempts") return 429;
+  if (code === "csrf_rejected") return 403;
+  if (code === "not_found") return 404;
+  return fallback;
+}
+function sendError(res, error, fallback = 400) {
+  sendJson(res, statusForError(error, fallback), errorBody(error));
+}
+
 function sendJson(res, statusCode, value) {
-  res.statusCode = statusCode;
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.statusCode = statusCode;  res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Cache-Control", "no-store");
   res.end(JSON.stringify(value));
 }
@@ -67,7 +79,7 @@ function bearerToken(req) {
   return typeof req.headers["x-admin-token"] === "string" ? req.headers["x-admin-token"].trim() : "";
 }
 
-function statusForError(code) {
+function statusForLookupError(code) {
   if (code === "not_found") return 404;
   if (code === "invalid_domain" || code === "invalid_argument") return 400;
   return 502;
@@ -366,7 +378,7 @@ async function main() {
         res.setHeader("Set-Cookie", sessionCookie(session.token, cookieOptions(req, session.maxAge)));
         sendJson(res, 200, { ok: true, username: settingsStore.username, redirect: "/monitor" });
       } catch (error) {
-        sendJson(res, error.code === "payload_too_large" ? 413 : 400, errorBody(error));
+        sendError(res, error);
       }
       return;
     }
@@ -393,7 +405,7 @@ async function main() {
         res.setHeader("Set-Cookie", clearSessionCookie(cookieOptions(req, 0)));
         sendJson(res, 200, { ok: true, ...result, message: "账号已更新，请重新登录" });
       } catch (error) {
-        sendJson(res, error?.code === "invalid_credentials" ? 403 : 400, errorBody(error));
+        sendError(res, error);
       }
       return;
     }
@@ -432,7 +444,9 @@ async function main() {
           return;
         }
 
-        const domains = String(body.domains ?? "");
+        // 未提供的字段沿用当前生效值，避免部分更新时报出与本次修改无关的错误
+        const previousPanel = await settingsStore.getMonitorSettings();
+        const domains = body.domains === undefined ? String(previousPanel.domains ?? "") : String(body.domains);
         if (domains.length > DOMAINS_MAX_LENGTH) {
           throw fail("invalid_domains", `监控域名内容过长（最多 ${DOMAINS_MAX_LENGTH} 字符）`);
         }
@@ -441,23 +455,23 @@ async function main() {
           throw fail("invalid_domains", "没有解析到有效域名，请用逗号或换行分隔，例如 example.com");
         }
 
-        const remindDays = Number(body.remindDays);
-        if (!Number.isFinite(remindDays)) {
-          throw fail("invalid_remind_days", "提前提醒天数必须是数字");
+        const remindDays = Number(body.remindDays === undefined ? previousPanel.remindDays : body.remindDays);
+        if (!Number.isFinite(remindDays) || remindDays < REMIND_DAYS_MIN || remindDays > REMIND_DAYS_MAX) {
+          throw fail("invalid_remind_days", `提前提醒天数必须是 ${REMIND_DAYS_MIN}-${REMIND_DAYS_MAX} 之间的数字`);
         }
-        const clampedRemindDays = Math.max(REMIND_DAYS_MIN, Math.min(REMIND_DAYS_MAX, Math.floor(remindDays)));
 
-        if (!isValidCheckTime(body.checkTime)) {
+        const checkTime = body.checkTime === undefined ? String(previousPanel.checkTime ?? "") : String(body.checkTime).trim();
+        if (!isValidCheckTime(checkTime)) {
           throw fail("invalid_check_time", "每日检查时间格式必须是 HH:mm（24 小时制），例如 09:00");
         }
 
         const saved = await settingsStore.setMonitorSettings({
           domains,
-          remindDays: clampedRemindDays,
-          dailyRemind: body.dailyRemind !== false,
-          backorderNotify: body.backorderNotify !== false,
-          checkTime: body.checkTime,
-          runOnStartup: body.runOnStartup === true,
+          remindDays: Math.floor(remindDays),
+          dailyRemind: (body.dailyRemind === undefined ? previousPanel.dailyRemind : body.dailyRemind) !== false,
+          backorderNotify: (body.backorderNotify === undefined ? previousPanel.backorderNotify : body.backorderNotify) !== false,
+          checkTime,
+          runOnStartup: (body.runOnStartup === undefined ? previousPanel.runOnStartup : body.runOnStartup) === true,
         });
         const { current } = monitor.applyConfig({ ...saved, source: "panel" });
         console.log(
@@ -466,7 +480,7 @@ async function main() {
         );
         sendJson(res, 200, { ok: true, monitorConfig: saved, monitor: monitor.status(), message: "监控配置已保存并立即生效" });
       } catch (error) {
-        sendJson(res, error?.code === "invalid_credentials" ? 403 : 400, errorBody(error));
+        sendError(res, error);
       }
       return;
     }
@@ -539,7 +553,7 @@ async function main() {
           message: `${parts.join("，")}，当前共 ${list.length} 个域名`,
         });
       } catch (error) {
-        sendJson(res, 400, errorBody(error));
+        sendError(res, error);
       }
       return;
     }
@@ -602,7 +616,7 @@ async function main() {
         domainWatch.setRdapOverrides(result.tlds);
         sendJson(res, 200, { ok: true, ...rdapPayload(), message: `RDAP 映射已保存并立即生效，共 ${Object.keys(result.tlds).length} 个后缀` });
       } catch (error) {
-        sendJson(res, 400, errorBody(error));
+        sendError(res, error);
       }
       return;
     }
@@ -616,7 +630,7 @@ async function main() {
         notifier.update(next);
         sendJson(res, 200, { ok: true, settings: await settingsStore.publicSettings() });
       } catch (error) {
-        sendJson(res, 400, errorBody(error));
+        sendError(res, error);
       }
       return;
     }
@@ -661,7 +675,7 @@ async function main() {
         const result = await domainWatch.queryDomain(url.searchParams.get("domain") || "");
         sendJson(res, 200, result);
       } catch (error) {
-        sendJson(res, statusForError(error?.code), errorBody(error));
+        sendJson(res, statusForLookupError(error?.code), errorBody(error));
       }
       return;
     }
@@ -701,7 +715,7 @@ async function main() {
 
   const server = createServer((req, res) => {
     handle(req, res).catch((error) => {
-      if (!res.headersSent) sendJson(res, error.code === "payload_too_large" ? 413 : 500, errorBody(error));
+      if (!res.headersSent) sendError(res, error, 500);
       else res.end();
     });
   });

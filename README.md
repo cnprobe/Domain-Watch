@@ -314,11 +314,11 @@ docker run --rm \
 | `POST /api/auth/login` | 公开 | 登录，成功后下发 `dw_session` Cookie |
 | `POST /api/auth/logout` | 登录 | 退出登录 |
 | `GET /api/auth/me` | 登录 | 当前账号信息 |
-| `POST /api/auth/change-credentials` | 登录 | 修改用户名和密码，**需当前密码**（改的是登录凭据本身），成功后当前会话失效 |
+| `POST /api/auth/change-credentials` | 登录 | 修改用户名和密码，**需当前密码**（改的是登录凭据本身）；省略的字段保持原值，成功后当前会话失效 |
 | `GET /api/settings` | 登录 | 读取设置（不回显 Token），含 `monitorConfig`（面板可编辑的监控参数）和 `monitor`（当前生效值） |
-| `PUT /api/settings/monitor` | 登录 | 保存监控参数，**保存后立即生效**；传 `{"reset":true}` 恢复为 `.env` 中的值 |
+| `PUT /api/settings/monitor` | 登录 | 保存监控参数，**保存后立即生效**；未提供的字段沿用当前值，可只改其中一项；传 `{"reset":true}` 恢复为 `.env` 中的值 |
 | `GET /api/settings/rdap` | 登录 | 读取 RDAP 映射配置（面板层 / 文件层 / 合并结果） |
-| `GET /api/settings/rdap/tlds` | 登录 | 读取后缀候选列表（设置页下拉框数据源） |
+| `GET /api/settings/rdap/tlds` | 登录 | 读取后缀候选列表（IANA 全量 TLD，便于脚本或自行编辑映射时参考） |
 | `PUT /api/settings/rdap` | 登录 | 保存 RDAP 映射，立即生效；`{"reset":true}` 清空面板层 |
 | `POST /api/settings/rdap` | 登录 | 立即从外部文件重新载入 |
 | `PUT /api/settings/telegram` | 登录 | 保存 Telegram 配置 |
@@ -331,6 +331,24 @@ docker run --rm \
 登录接口限流：同一 IP 15 分钟内失败 5 次后返回 `429`。带会话的写操作会校验 `Origin` 同源，不一致返回 `403 csrf_rejected`。
 
 保存设置（监控参数、Telegram）只需登录会话，不再重复要求输入当前密码；只有修改登录凭据时才需要。
+
+### `GET /api/whois` 响应字段
+
+`RDAP` 查询成功时 `source` 为 `rdap`，回退到 WHOIS 时为 `whois`；字段按来源尽力填充，缺失即为 `null` 或空数组。
+
+| 字段 | 说明 |
+| --- | --- |
+| `domain` / `asciiDomain` | 原始输入与 punycode 形式（IDN 会同时给出） |
+| `tld` / `rdapServer` | 后缀与实际使用的 RDAP 服务器 |
+| `source` | 数据来源：`rdap` 或 `whois` |
+| `ldhName` / `unicodeName` | 注册局返回的原始名称 |
+| `registration` / `expiration` / `lastChanged` | 注册、到期、最后变更时间（ISO 8601） |
+| `registrar` | 注册商对象，含 `handle` 与 `name` |
+| `nameservers` / `status` | 名称服务器列表与域名状态 |
+| `dnssec` | DNSSEC 状态，含 `delegationSigned` 与 `dsData` |
+| `events` | 注册局事件表（键名沿用注册局原文，如 `last changed`） |
+
+到期提醒与抢注判断以 `expiration` 为准。
 
 ### 错误码
 
@@ -365,7 +383,7 @@ docker run --rm \
 | `invalid_rdap_overrides` | 400 | RDAP 映射的后缀或地址格式不合法 |
 | `rdap_file_not_configured` | 400 | 未设置 `RDAP_OVERRIDES_FILE`，无法从文件载入 |
 | `invalid_telegram_api_base` | 400 | Telegram API 地址格式错误（缺协议、含空格/账号密码/查询参数、主机名不完整、粘贴错位） |
-| `invalid_remind_days` | 400 | 提前提醒天数不是数字 |
+| `invalid_remind_days` | 400 | 提前提醒天数不是 0-365 之间的数字 |
 | `rate_limited` | 429 | 上游 WHOIS 服务限流 |
 | `timeout` / `network_error` / `http_error` / `parse_error` | 502 | 上游查询失败 |
 | `bootstrap_error` | 502 | IANA 引导文件加载失败 |

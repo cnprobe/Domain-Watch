@@ -442,6 +442,7 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, logger =
       checkTime: checkTime.text,
       dailyRemind,
       backorderNotify,
+      runOnStartup,
       configSource,
       telegramConfigured: notifier.configured,
       running: Boolean(timer),

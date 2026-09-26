@@ -343,10 +343,16 @@ export class SettingsStore {
     if (!(await this.authenticate(this.data.auth.username, currentPassword))) {
       throw fail("invalid_credentials", "当前密码不正确");
     }
-    const nextUsername = validateUsername(username);
-    const nextPassword = validatePassword(newPassword);
+    // 省略的字段保持原值，只有真正修改登录凭据时才需要当前密码
+    const wantsUsername = username !== undefined && String(username).trim() !== "";
+    const wantsPassword = newPassword !== undefined && String(newPassword) !== "";
+    if (!wantsUsername && !wantsPassword) {
+      throw fail("invalid_argument", "请提供新的用户名或新密码");
+    }
+    const nextUsername = wantsUsername ? validateUsername(username) : this.data.auth.username;
+    const nextPassword = wantsPassword ? validatePassword(newPassword) : null;
     this.data.auth.username = nextUsername;
-    this.data.auth.password = passwordHash(nextPassword);
+    if (nextPassword !== null) this.data.auth.password = passwordHash(nextPassword);
     this.data.auth.sessionSecret = encode(randomBytes(32));
     this.data.auth.updatedAt = new Date().toISOString();
     await this.save();
