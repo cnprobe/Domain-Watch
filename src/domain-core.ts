@@ -31,6 +31,7 @@ const BOOTSTRAP_TIMEOUT_MS = 15000; // 引导文件拉取超时
 const RDAP_TIMEOUT_MS = 8000; // 单次 RDAP 查询超时
 const TLD_TIMEOUT_MS = 10000; // 拉取 IANA TLD 列表超时
 const WHOIS_PAGE_TIMEOUT_MS = 12000; // 单次 whois 回退查询超时（UAPI / 网页源）
+const WHOIS_CHAIN_BUDGET_MS = 20000; // 整条 whois 回退链的总预算（最多 4 个源，单源 12s）
 const WHOIS_PAGE_SOURCES: Array<{ name: string; url: (d: string) => string }> = [
   { name: "who.is", url: (d) => "https://who.is/whois/" + d },
   { name: "whois.com", url: (d) => "https://www.whois.com/whois/" + d },
@@ -986,6 +987,21 @@ async function queryUapiWhois(asciiDomain: string, inputDomain: string, tld: str
 
 /** 异步 whois 回退链：xxapi.cn → UAPI（访客）→ 网页源，全部失败抛错 */
 async function queryWhoisFallback(asciiDomain: string, inputDomain: string, tld: string): Promise<Record<string, unknown>> {
+  // 只有「域名不存在」是终局结论，换源也不会变。
+  //
+  // invalid_argument 不能当终止条件：它只是**上游**对这次查询的判断——例如
+  // uapis.cn 遇到 t.co 这种单字符二级域会直接回 400，意思是「我处理不了」，
+  // 不是「域名非法」。早先把它和 not_found 一起当成终局，导致 t.co 在 UAPI
+  // 被拒后就不再试后面的网页源，整条查询白跑 12–15s 仍然失败，而且同一个域名
+  // 会随上游返回 400 或空数据而在 invalid_argument / parse_error 之间摇摆。
+  // 用户输入非法走的是 invalid_domain，在进入本函数前就已被挡住，与此无关。
+  const isTerminal = (code: string | undefined) => code === "not_found";
+
+  // 每个源的超时都是 12s，最多 4 个源，最坏 48s。串行检查上百个域名时，一个
+  // 病态域名就可能拖掉整轮，所以给整条链一个总预算：超了就不再试下一个源。
+  const deadline = Date.now() + WHOIS_CHAIN_BUDGET_MS;
+  let lastErr: unknown = null;
+
   // 1) 首选 xxapi.cn（免费，结构化 JSON）
   try {
     const r = await queryXxapiWhois(asciiDomain, inputDomain, tld);
@@ -993,26 +1009,33 @@ async function queryWhoisFallback(asciiDomain: string, inputDomain: string, tld:
     return r;
   } catch (e1) {
     const c1 = (e1 as AppError).code;
-    if (c1 === "not_found" || c1 === "invalid_argument") throw e1;
+    if (isTerminal(c1)) throw e1;
+    lastErr = e1;
     console.log("[domain-watch] xxapi.cn 失败（" + c1 + "）: " + ((e1 as AppError).message || String(e1)));
   }
   // 2) UAPI（访客免费额度）
-  try {
-    const r = await queryUapiWhois(asciiDomain, inputDomain, tld);
-    console.log("[domain-watch] whois 回退成功（UAPI 访客）：" + asciiDomain);
-    return r;
-  } catch (e2) {
-    const c2 = (e2 as AppError).code;
-    if (c2 === "not_found" || c2 === "invalid_argument") throw e2;
-    console.log("[domain-watch] UAPI 失败（" + c2 + "），改用网页源: " + ((e2 as AppError).message || String(e2)));
+  if (Date.now() < deadline) {
+    try {
+      const r = await queryUapiWhois(asciiDomain, inputDomain, tld);
+      console.log("[domain-watch] whois 回退成功（UAPI 访客）：" + asciiDomain);
+      return r;
+    } catch (e2) {
+      const c2 = (e2 as AppError).code;
+      if (isTerminal(c2)) throw e2;
+      lastErr = e2;
+      console.log("[domain-watch] UAPI 失败（" + c2 + "），改用网页源: " + ((e2 as AppError).message || String(e2)));
+    }
   }
   // 3) 网页源兜底（who.is / whois.com）
-  let lastErr: unknown = null;
   for (let i = 0; i < WHOIS_PAGE_SOURCES.length; i++) {
+    if (Date.now() >= deadline) {
+      console.log("[domain-watch] whois 回退链超出 " + WHOIS_CHAIN_BUDGET_MS + "ms 预算，停止尝试后续来源：" + asciiDomain);
+      break;
+    }
     const src = WHOIS_PAGE_SOURCES[i];
     try {
       const url = src.url(asciiDomain);
-      const html = await fetchText(url, WHOIS_PAGE_TIMEOUT_MS);
+      const html = await fetchText(url, Math.min(WHOIS_PAGE_TIMEOUT_MS, Math.max(1000, deadline - Date.now())));
       const parsed = parseWhoisHtml(html);
       if (!parsed.registration && !parsed.expiration && parsed.nameservers.length === 0) {
         throw makeError("parse_error", "未解析到有效 whois 字段：" + src.name);
@@ -1023,7 +1046,8 @@ async function queryWhoisFallback(asciiDomain: string, inputDomain: string, tld:
       console.log("[domain-watch] whois 网页源 " + src.name + " 失败: " + ((err as AppError).message || (err as AppError).code));
     }
   }
-  throw lastErr || makeError("network_error", "所有 whois 回退源均不可用");
+  if (lastErr) throw lastErr;
+  throw makeError("timeout", "whois 回退链超时（预算 " + WHOIS_CHAIN_BUDGET_MS + "ms）：" + asciiDomain);
 }
 
 /** 查询入口的封装：任何异常都转成 ok:false 响应结构 */
