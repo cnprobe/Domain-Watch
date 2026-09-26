@@ -27,19 +27,7 @@
   .rdap-head { margin:0 0 6px; color:var(--ink-soft); font-size:12px; letter-spacing:.06em; }
   .rdap-rows { display:flex; flex-direction:column; gap:10px; margin:0 0 14px; }
   .rdap-row input { width:100%; min-height:42px; }
-  .rdap-row .tld { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
-  .combo { position:relative; display:flex; align-items:stretch; }
-  .combo .tld { flex:1; min-width:0; border-top-right-radius:0; border-bottom-right-radius:0; }
-  .combo-btn { flex:none; width:38px; border:1px solid var(--line); border-left:0; border-radius:0 var(--radius) var(--radius) 0; background:var(--paper-deep); color:var(--ink-soft); font:inherit; font-size:12px; cursor:pointer; }
-  .combo-btn:hover { color:var(--ink); background:var(--paper); }
-  .combo.open .combo-btn { background:var(--gold); color:var(--paper); border-color:var(--gold-line); }
-  .combo-menu { position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:40; max-height:230px; overflow-y:auto; border:1px solid var(--gold-line); border-radius:var(--radius); background:var(--paper); box-shadow:var(--shadow-hover); }
-  .combo-menu[hidden] { display:none; }
-  .combo-opt { display:block; width:100%; padding:8px 12px; border:0; background:none; color:var(--ink); font:inherit; font-size:14px; text-align:left; cursor:pointer; }
-  .combo-opt:hover,.combo-opt.active { background:var(--paper-deep); color:var(--ink); }
-  .combo-opt.new { color:var(--gold); }
-  .combo-opt small { display:block; color:var(--ink-soft); font-size:11px; }
-  .combo-empty { padding:10px 12px; color:var(--ink-soft); font-size:13px; }
+  .rdap-row .tld { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; padding-right:30px; appearance:none; -webkit-appearance:none; background-image:linear-gradient(45deg,transparent 50%,var(--ink-soft) 50%),linear-gradient(135deg,var(--ink-soft) 50%,transparent 50%); background-position:calc(100% - 16px) 50%,calc(100% - 11px) 50%; background-size:5px 5px,5px 5px; background-repeat:no-repeat; }
   .rdap-row.off .tld { border-color:var(--gold-line); background:var(--paper-deep); }
   .rdap-row .tag { display:inline-block; margin-left:8px; padding:2px 7px; border:1px solid var(--gold-line); border-radius:7px; color:var(--gold); font-size:11px; }
   .rdap-row .del { padding:6px 4px; border:0; background:none; color:var(--rose); font:inherit; font-size:13px; cursor:pointer; text-decoration:underline; text-underline-offset:3px; white-space:nowrap; }
@@ -118,7 +106,6 @@
     <form id="rdapForm">
       <div class="rdap-head"><span>域名后缀</span><span>RDAP 服务器地址（可留空表示禁用该后缀的 RDAP）</span><span></span></div>
       <div class="rdap-rows" id="rdapRows"></div>
-      <datalist id="tldOptions"></datalist>
       <button class="button secondary" type="button" id="rdapAdd">+ 添加后缀</button>
       <p class="hint" id="rdapStatus">读取中…</p>
       <button class="button accent" type="submit">保存 RDAP 映射</button>
@@ -164,70 +151,48 @@ function fill(data){const s=data.settings;$("newUsername").value=s.username;$("t
 const c=data.monitorConfig||{};$("monitorDomains").value=c.domains||"";$("monitorRemindDays").value=c.remindDays??30;$("monitorCheckTime").value=c.checkTime||"09:00";$("monitorDailyRemind").checked=c.dailyRemind!==false;$("monitorBackorderNotify").checked=c.backorderNotify!==false;$("monitorRunOnStartup").checked=c.runOnStartup===true;$("configSource").textContent=c.source==="panel"?"设置面板":".env 文件";$("configUpdated").textContent=c.source==="panel"&&c.updatedAt?`最后保存：${new Date(c.updatedAt).toLocaleString()}`:"";}
 async function load(){const response=await fetch("/api/settings");if(response.status===401){location.href="/login?next=/settings";return;}const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"加载失败");fill(data);await Promise.all([loadRdap(),loadTldOptions()]);}
 let rdapKnown=[];
-let comboSeq=0;
-const TLD_KEY_PATTERN=/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
+const CUSTOM_OPTION="__custom__";
 function normalizeTld(raw){return String(raw||"").trim().toLowerCase().replace(/^\.+/,"").replace(/\.+$/,"");}
-function isValidTld(raw){const key=normalizeTld(raw);if(!key||key.length>253)return false;if(!TLD_KEY_PATTERN.test(key))return false;return key.split(".").every((label)=>label.length>0&&label.length<=63);}
 function splitUrls(raw){return String(raw||"").split(/[\n,，;；]+/).map((v)=>v.trim()).filter(Boolean);}
-function closeAllCombos(except){for(const row of $("rdapRows").children){const menu=row.querySelector(".combo-menu");const wrap=row.querySelector(".combo");if(!menu||!wrap)continue;if(wrap===except)continue;menu.hidden=true;wrap.classList.remove("open");}}
-function comboCandidates(query){const key=normalizeTld(query);const pool=rdapKnown.slice();
-for(const name of Object.keys(rdapCurrent||{})){if(pool.indexOf(name)<0)pool.push(name);}
-pool.sort();
-if(!key)return pool.slice(0,60);
-const exact=[],prefix=[],part=[];
-for(const name of pool){if(name===key)exact.push(name);else if(name.startsWith(key))prefix.push(name);else if(name.indexOf(key)>=0)part.push(name);}
-return exact.concat(prefix,part).slice(0,60);}
-function renderComboMenu(combo,query){const menu=combo.querySelector(".combo-menu");const input=combo.querySelector(".tld");menu.textContent="";
-const key=normalizeTld(input.value);
-const list=comboCandidates(input.value);
-const known=new Set(rdapKnown.concat(Object.keys(rdapCurrent||{})));
-const canCreate=key&&!known.has(key)&&isValidTld(key);
-if(canCreate){const item=document.createElement("button");item.type="button";item.className="combo-opt new";item.setAttribute("data-value",key);item.textContent=key;
-const hint=document.createElement("small");hint.textContent="没有匹配的已知后缀，将新建此映射";item.appendChild(hint);menu.appendChild(item);}
-for(const name of list){const item=document.createElement("button");item.type="button";item.className="combo-opt";item.setAttribute("data-value",name);item.textContent=name;
-const urls=(rdapCurrent||{})[name];if(urls&&urls.length){const hint=document.createElement("small");hint.textContent=urls.length?urls.join("，"):"已禁用 RDAP";item.appendChild(hint);}
-menu.appendChild(item);}
-if(!menu.children.length){const empty=document.createElement("div");empty.className="combo-empty";empty.textContent=key?"没有匹配项，直接回车即可按输入内容新建":"输入关键字以搜索后缀";menu.appendChild(empty);}
-menu.hidden=false;combo.classList.add("open");}
-function selectComboValue(combo,value){const input=combo.querySelector(".tld");input.value=normalizeTld(value);
-if(typeof input.applyTld==="function")input.applyTld();closeAllCombos();}
-function highlightCombo(menu,step){const items=menu.querySelectorAll(".combo-opt");if(!items.length)return;let index=-1;for(let i=0;i<items.length;i++){if(items[i].classList.contains("active"))index=i;}
-const next=(index+step+items.length)%items.length;for(const item of items)item.classList.remove("active");items[next].classList.add("active");items[next].scrollIntoView?items[next].scrollIntoView({block:"nearest"}):0;}
+function knownTldPool(){const pool=rdapKnown.slice();for(const name of Object.keys(rdapCurrent||{})){if(pool.indexOf(name)<0)pool.push(name);}return pool.sort();}
+function buildTldOptions(select,current){select.textContent="";
+const blank=document.createElement("option");blank.value="";blank.textContent="— 请选择后缀 —";select.appendChild(blank);
+for(const name of knownTldPool()){const option=document.createElement("option");option.value=name;option.textContent=name;select.appendChild(option);}
+const custom=document.createElement("option");custom.value=CUSTOM_OPTION;custom.textContent="＋ 自定义后缀（手动输入）";select.appendChild(custom);
+select.value=current||"";}
 function addRdapRow(tld,url){const row=document.createElement("div");row.className="rdap-row";
-const combo=document.createElement("div");combo.className="combo";
-const tldInput=document.createElement("input");tldInput.className="tld";tldInput.type="text";tldInput.placeholder="搜索或输入后缀";tldInput.setAttribute("autocomplete","off");tldInput.setAttribute("role","combobox");tldInput.setAttribute("aria-expanded","false");tldInput.value=tld||"";
-const comboBtn=document.createElement("button");comboBtn.type="button";comboBtn.className="combo-btn";comboBtn.textContent="▾";comboBtn.setAttribute("aria-label","展开后缀候选");
-const menu=document.createElement("div");menu.className="combo-menu";menu.hidden=true;menu.setAttribute("role","listbox");
-combo.append(tldInput,comboBtn,menu);
+const cell=document.createElement("div");cell.style.display="flex";cell.style.flexDirection="column";cell.style.gap="6px";
+const select=document.createElement("select");select.className="tld";
+const customInput=document.createElement("input");customInput.type="text";customInput.placeholder="输入自定义后缀，如 co.uk";customInput.hidden=true;
+const current=normalizeTld(tld||"");const inPool=current&&knownTldPool().indexOf(current)>=0;
+buildTldOptions(select,inPool?current:(current?CUSTOM_OPTION:""));
+if(current&&!inPool){customInput.value=current;customInput.hidden=false;}
+cell.append(select,customInput);
 const urlWrap=document.createElement("div");urlWrap.style.display="flex";urlWrap.style.alignItems="center";
 const urlInput=document.createElement("input");urlInput.className="url";urlInput.type="text";urlInput.placeholder="留空 = 禁用该后缀的 RDAP";urlInput.value=Array.isArray(url)?url.join("\n"):(url||"");
 const tag=document.createElement("span");tag.className="tag";tag.textContent="已禁用 RDAP";
 const del=document.createElement("button");del.type="button";del.className="del";del.textContent="删除";
-const syncTag=()=>{const hasTld=!!tldInput.value.trim();const empty=!urlInput.value.trim();row.classList.toggle("off",hasTld&&empty);if(hasTld&&empty){if(!tag.parentNode)urlWrap.appendChild(tag);}else if(tag.parentNode){tag.remove();}};
-function applyTld(){tldInput.value=normalizeTld(tldInput.value);const key=tldInput.value;
-if(key){urlInput.value=((rdapCurrent||{})[key]||[]).join("\n");}
-syncTag();}
-tldInput.applyTld=()=>{applyTld();closeAllCombos();};
-tldInput.addEventListener("input",()=>{rdapDirty=true;tldInput.value=normalizeTld(tldInput.value);syncTag();renderComboMenu(combo,tldInput.value);});
-tldInput.addEventListener("focus",()=>renderComboMenu(combo,tldInput.value));
-tldInput.addEventListener("change",()=>{rdapDirty=true;applyTld();closeAllCombos();});
-tldInput.addEventListener("keydown",(event)=>{if(event.key==="ArrowDown"){event.preventDefault();if(menu.hidden)renderComboMenu(combo,tldInput.value);highlightCombo(menu,1);}
-else if(event.key==="ArrowUp"){event.preventDefault();highlightCombo(menu,-1);}
-else if(event.key==="Enter"){const active=menu.querySelector(".combo-opt.active")||menu.querySelector(".combo-opt");if(!menu.hidden&&active){event.preventDefault();selectComboValue(combo,active.getAttribute("data-value")||tldInput.value);}}
-else if(event.key==="Escape"){closeAllCombos();}});
-comboBtn.addEventListener("click",()=>{if(menu.hidden){renderComboMenu(combo,tldInput.value);tldInput.focus();}else{closeAllCombos();}});
-menu.addEventListener("click",(event)=>{const target=event.target.closest?event.target.closest(".combo-opt"):null;if(!target)return;selectComboValue(combo,target.getAttribute("data-value")||"");});
+const rowTld=()=>select.value===CUSTOM_OPTION?normalizeTld(customInput.value):normalizeTld(select.value);
+const syncTag=()=>{const hasTld=!!rowTld();const empty=!urlInput.value.trim();row.classList.toggle("off",hasTld&&empty);if(hasTld&&empty){if(!tag.parentNode)urlWrap.appendChild(tag);}else if(tag.parentNode){tag.remove();}};
+const applyByTld=()=>{const key=rowTld();urlInput.value=key?((rdapCurrent||{})[key]||[]).join("\n"):"";syncTag();};
+select.addEventListener("change",()=>{rdapDirty=true;
+if(select.value===CUSTOM_OPTION){customInput.hidden=false;customInput.focus();}else{customInput.hidden=true;customInput.value="";}
+applyByTld();});
+customInput.addEventListener("input",()=>{rdapDirty=true;customInput.value=normalizeTld(customInput.value);applyByTld();});
+customInput.addEventListener("change",()=>{rdapDirty=true;const key=normalizeTld(customInput.value);if(key&&knownTldPool().indexOf(key)>=0){select.value=key;customInput.hidden=true;customInput.value="";}applyByTld();});
 urlInput.addEventListener("input",()=>{rdapDirty=true;syncTag();});
 del.addEventListener("click",()=>{rdapDirty=true;row.remove();if(!$("rdapRows").children.length)addRdapRow();});
 urlWrap.appendChild(urlInput);
-row.append(combo,urlWrap,del);$("rdapRows").appendChild(row);syncTag();return row;}
+row.append(cell,urlWrap,del);$("rdapRows").appendChild(row);row.readTld=rowTld;syncTag();return row;}
 function renderRdap(data){if(rdapDirty)return;const r=data.rdap||{};rdapCurrent=(r.effective&&Object.keys(r.effective).length)?r.effective:(r.panel||{});
 const host=$("rdapRows");host.textContent="";const source=Object.keys(r.panel||{}).length?r.panel:(r.effective||{});
 for(const key of Object.keys(source).sort())addRdapRow(key,source[key]);if(!host.children.length)addRdapRow();
 const parts=[`面板 ${r.counts?.panel??0} 条`];if(r.filePath){parts.push(`文件 ${r.counts?.file??0} 条（优先）`);parts.push(r.fileError?`文件异常：${r.fileError}`:`路径 ${r.filePath}`);}else{parts.push("未挂载外部文件");}parts.push(`生效 ${r.counts?.effective??0} 条`);$("rdapStatus").textContent=parts.join("　·　");}
-async function loadTldOptions(){try{const response=await fetch("/api/settings/rdap/tlds");if(!response.ok)return;const data=await response.json();if(!data.ok)return;rdapKnown=data.tlds||[];const list=$("tldOptions");if(list){list.textContent="";for(const name of rdapKnown){const option=document.createElement("option");option.value=name;list.appendChild(option);}}}catch(error){}}
+async function loadTldOptions(){try{const response=await fetch("/api/settings/rdap/tlds");if(!response.ok)return;const data=await response.json();if(!data.ok)return;rdapKnown=data.tlds||[];
+for(const row of $("rdapRows").children){const select=row.querySelector(".tld");if(!select)continue;const current=normalizeTld(select.value);buildTldOptions(select,current);}}
+catch(error){}}
 async function loadRdap(){try{const response=await fetch("/api/settings/rdap");if(response.status===401){location.href="/login?next=/settings";return;}const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"读取失败");renderRdap(data);}catch(error){$("rdapStatus").textContent="读取 RDAP 映射失败："+error.message;}}
-function collectRdapRows(){const out={};for(const row of $("rdapRows").children){const tld=normalizeTld(row.querySelector(".tld")?.value);if(!tld)continue;out[tld]=splitUrls(row.querySelector(".url")?.value);}return out;}
+function collectRdapRows(){const out={};for(const row of $("rdapRows").children){const tld=typeof row.readTld==="function"?row.readTld():normalizeTld(row.querySelector(".tld")?.value);if(!tld)continue;out[tld]=splitUrls(row.querySelector(".url")?.value);}return out;}
 $("rdapAdd").addEventListener("click",()=>{rdapDirty=true;const row=addRdapRow();row.querySelector(".tld").focus();});
 $("rdapForm").addEventListener("submit",async(event)=>{event.preventDefault();const tlds=collectRdapRows();const button=event.target.querySelector('button[type=submit]');button.disabled=true;try{const response=await fetch("/api/settings/rdap",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({tlds})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"保存失败");ok(data.message);rdapDirty=false;await loadRdap();}catch(error){fail("保存 RDAP 映射",error);}finally{button.disabled=false;}});
 $("rdapReload").addEventListener("click",async()=>{const button=$("rdapReload");button.disabled=true;try{const response=await fetch("/api/settings/rdap",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({reload:true})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"载入失败");ok(data.message||"已从文件重新载入");rdapDirty=false;await loadRdap();}catch(error){fail("从文件载入",error);}finally{button.disabled=false;}});
@@ -236,7 +201,6 @@ $("credentials").addEventListener("submit",async(event)=>{event.preventDefault()
 $("monitorForm").addEventListener("submit",async(event)=>{event.preventDefault();const button=event.target.querySelector('button[type=submit]');button.disabled=true;try{const response=await fetch("/api/settings/monitor",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({domains:$("monitorDomains").value,remindDays:Number($("monitorRemindDays").value),checkTime:$("monitorCheckTime").value.trim(),dailyRemind:$("monitorDailyRemind").checked,backorderNotify:$("monitorBackorderNotify").checked,runOnStartup:$("monitorRunOnStartup").checked})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"保存失败");ok(data.message||"监控设置保存成功，已立即生效");}catch(error){fail("保存监控设置",error);}finally{button.disabled=false;}load().catch(error=>toast("刷新页面数据失败："+error.message,"err"));});
 $("monitorReset").addEventListener("click",async()=>{if(!confirm("确定放弃面板中的监控设置，恢复为 .env 里的值？"))return;const button=$("monitorReset");button.disabled=true;try{const response=await fetch("/api/settings/monitor",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({reset:true})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"恢复失败");ok(data.message||"已恢复为 .env 配置");}catch(error){fail("恢复 .env 配置",error);}finally{button.disabled=false;}load().catch(error=>toast("刷新页面数据失败："+error.message,"err"));});
 $("telegram").addEventListener("submit",async(event)=>{event.preventDefault();const button=event.target.querySelector("button");button.disabled=true;try{const response=await fetch("/api/settings/telegram",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:$("telegramToken").value,chatId:$("telegramChatId").value,apiBase:$("telegramApiBase").value,enabled:$("telegramEnabled").checked})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"保存失败");ok(data.message||"Telegram 配置保存成功，已加密存储");$("telegramToken").value="";}catch(error){fail("保存 Telegram 配置",error);}finally{button.disabled=false;}load().catch(error=>toast("刷新页面数据失败："+error.message,"err"));});
-document.addEventListener("click",(event)=>{const inside=event.target&&event.target.closest?event.target.closest(".combo"):null;if(!inside)closeAllCombos();});
 $("logout").addEventListener("click",async()=>{try{const response=await fetch("/api/auth/logout",{method:"POST"});if(!response.ok)throw new Error("服务端未接受退出请求");location.href="/login";}catch(error){fail("退出登录",error);}});
 load().catch(error=>fail("加载设置",error));
 </script>
