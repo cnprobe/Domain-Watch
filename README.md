@@ -117,6 +117,8 @@ npm run website:start      # 读取根目录 .env 并启动
 
 监控面板顶部可以直接添加域名，列表每行有「移除」按钮，增删即时生效并有右上角结果弹窗；也可以在设置页的「监控设置」里一次性编辑整个列表。
 
+监控列表还有**续费价格**、**商家**、**商家网站**三列，用「编辑」按钮填写。这三项注册局（RDAP / WHOIS）都不提供，只能自己记录：商家留空时会自动显示查询到的注册商名。域名从监控列表移除时，对应备注会一并清掉。
+
 设置页包含三块：监控设置、查询设置（RDAP 映射）、Telegram 通知，外加账号安全。所有保存操作都有右上角结果弹窗，成功显示绿框、失败显示红框并带具体原因。
 
 ## 环境变量
@@ -375,6 +377,14 @@ services:
 2. 计算剩余天数，`≤ REMIND_DAYS` 且 `DAILY_REMIND=true` 时发送到期提醒。
 3. 已过期且 `BACKORDER_NOTIFY=true` 时发送一次抢注提醒。
 4. 发送成功后写入 `reminders.json`，同一天或同一到期日不重复发送。
+5. **只有落在提醒窗口内的域名才会发消息**。`example.com` 还剩 300 多天、窗口是 30 天时，定时任务照常执行但不会推送——这是正常行为。每次检查都会在日志里留下一行结论，便于确认：
+
+```
+[domain-watch] 每日定时检查完成：检查 1 个，提醒 0 个，跳过 1 个，
+跳过原因：example.com：剩余 321 天，未到提醒窗口（提醒窗口 30 天内才通知，窗口外的域名不会发消息）
+```
+
+想验证整条通知链路，可以把「提前提醒天数」临时调到大于剩余天数（例如 365），或用 `POST /api/check?simulate=expired` 模拟过期；`POST /api/test-notify` 则直接发一条测试通知。
 5. 到期日变化时自动重置该域名的去重状态。
 
 定时器运行在进程内，只应运行**一个实例**；多副本会重复检查。
@@ -385,7 +395,7 @@ services:
 
 | 文件 | 作用 |
 | --- | --- |
-| `settings.json` | 用户名、密码哈希、会话密钥、加密后的 Telegram 配置（600） |
+| `settings.json` | 用户名、密码哈希、会话密钥、加密后的 Telegram 配置、域名备注（价格/商家）（600） |
 | `config.key` | 自动生成的 AES-256-GCM 密钥（600） |
 | `rdap-bootstrap.json` | IANA RDAP 引导缓存，72 小时刷新 |
 | `tlds.txt` | IANA 全量 TLD 列表缓存，供 `GET /api/settings/rdap/tlds` 使用 |
@@ -419,7 +429,9 @@ docker run --rm \
 | `PUT /api/settings/rdap` | 登录 | 保存 RDAP 映射，立即生效；`{"reset":true}` 清空面板层 |
 | `POST /api/settings/rdap` | 登录 | 立即从外部文件重新载入 |
 | `PUT /api/settings/telegram` | 登录 | 保存 Telegram 配置 |
-| `GET /api/monitor` | 登录 | 实时查询全部监控域名并返回汇总，不发通知 |
+| `GET /api/monitor` | 登录 | 实时查询全部监控域名并返回汇总，不发通知；每项含 `price` / `vendor` / `vendorUrl` / `registrarName` |
+| `POST /api/settings/reminders/clear` | 登录 | 清除提醒记录，同时重置「今日已提醒」与「已发过抢注提醒」两个标记，让两类通知都能再发一次；传 `{"domain":"a.com"}` 只清单个域名，不传则清全部 |
+| `PUT /api/settings/domain-meta` | 登录 | 保存域名备注：`{"set":{"example.com":{"price":"¥85/年","vendor":"Cloudflare","vendorUrl":"dash.cloudflare.com"}}}`；值为 `null` 或传 `remove` 即删除 |
 | `PUT /api/settings/monitor/domains` | 登录 | 增删监控域名：`{"add":"a.com,b.com"}` / `{"remove":"a.com"}`，可同时传；自动去重并清理被移除域名的提醒记录 |
 | `GET /api/status` | 登录 | 监控参数与 Telegram 是否已配置 |
 | `POST /api/test-notify` | 登录 | 发送测试通知 |
@@ -475,6 +487,7 @@ docker run --rm \
 | `not_found` | 404 | 页面或接口不存在 |
 | `invalid_domain` / `invalid_argument` | 400 | 域名参数为空或非法 |
 | `invalid_domains` | 400 | 监控域名内容为空、格式错误或超过 4000 字符 |
+| `invalid_domain_meta` | 400 | 域名备注不合法：域名格式、价格/商家超长、商家网站不是 http(s) 地址或数量超限 |
 | `no_domain_change` | 400 | 要添加的域名已存在，或要移除的域名不在列表中 |
 | `invalid_check_time` | 400 | 检查时间不是 `HH:mm` 格式 |
 | `invalid_rdap_overrides` | 400 | RDAP 映射的后缀或地址格式不合法 |

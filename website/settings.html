@@ -33,7 +33,8 @@
   .toast .toast-text { flex:1; word-break:break-word; } .toast .toast-close { flex:none; width:22px; height:22px; margin:-2px -4px 0 0; padding:0; border:0; background:transparent; color:var(--ink-soft); font:inherit; font-size:16px; line-height:1; cursor:pointer; border-radius:4px; } .toast .toast-close:hover { color:var(--ink); background:var(--paper-deep); }
   @keyframes toast-in { from { opacity:0; transform:translateY(-10px); } to { opacity:1; transform:none; } }
   @media (prefers-reduced-motion:reduce) { .toast { animation:none; } }
-  .check { display:flex; align-items:center; gap:9px; margin:18px 0; color:var(--ink); } .check input { width:auto; accent-color:var(--gold); }
+  .check { display:flex; align-items:center; gap:9px; margin:18px 0; color:var(--ink); }
+ .check input { width:auto; accent-color:var(--gold); }
   form button[type=submit] { margin-top:20px; } footer { display:flex; justify-content:space-between; gap:16px; margin-top:64px; padding-top:18px; border-top:1px solid var(--line); color:var(--ink-soft); font-size:12px; letter-spacing:.08em; }
   @media (max-width:700px) { .page { padding:18px 16px 52px; } .topbar { align-items:flex-start; flex-direction:column; gap:16px; } .nav { justify-content:flex-start; } .card { padding:18px; } footer { flex-direction:column; margin-top:48px; } }
   @media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none !important; } }
@@ -71,6 +72,7 @@
   <section class="card">
     <h2>监控设置</h2>
     <p class="hint">保存后<strong>立即生效</strong>，无需重启容器。当前配置来源：<strong id="configSource">读取中…</strong>　<span class="muted" id="configUpdated"></span></p>
+    <p class="hint">「清除提醒记录」会清掉「今日已提醒过」和「已发过抢注提醒」两个标记，这样到期提醒和抢注提醒都能再发一次；不影响监控域名与其他设置。</p>
     <form id="monitorForm">
       <div class="grid">
         <div><label for="monitorDomains">监控域名</label><textarea id="monitorDomains" rows="1" placeholder="example.com, example.org" title="支持逗号、空格或换行分隔，可拖动右下角调整高度"></textarea></div>
@@ -90,6 +92,7 @@
       <label class="check"><input id="monitorRunOnStartup" type="checkbox"> 容器启动时检查一次<em class="muted">（需重启后生效）</em></label>
       <button class="button accent" type="submit">保存监控设置</button>
       <button class="button secondary" type="button" id="monitorReset">恢复为 .env 配置</button>
+      <button class="button secondary" type="button" id="monitorClearRemind">清除提醒记录</button>
     </form>
   </section>
 
@@ -151,6 +154,13 @@ $("rdapReload").addEventListener("click",async()=>{const button=$("rdapReload");
 $("rdapReset").addEventListener("click",async()=>{if(!confirm("确定清空设置面板中的 RDAP 映射？（外部文件层不受影响）"))return;const button=$("rdapReset");button.disabled=true;try{const response=await fetch("/api/settings/rdap",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({reset:true})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"清空失败");ok(data.message||"已清空面板配置");await loadRdap();}catch(error){fail("清空 RDAP 映射",error);}finally{button.disabled=false;}});
 $("credentials").addEventListener("submit",async(event)=>{event.preventDefault();if($("newPassword").value!==$("confirmPassword").value){fail("修改账号密码",new Error("两次输入的新密码不一致"));return;}const button=event.target.querySelector("button");button.disabled=true;try{const response=await fetch("/api/auth/change-credentials",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({currentPassword:$("currentPassword").value,username:$("newUsername").value,newPassword:$("newPassword").value})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"保存失败");ok("账号信息更新成功，请重新登录");setTimeout(()=>location.href="/login",1200);}catch(error){fail("修改账号密码",error);}finally{button.disabled=false;}});
 $("monitorForm").addEventListener("submit",async(event)=>{event.preventDefault();const button=event.target.querySelector('button[type=submit]');button.disabled=true;try{const response=await fetch("/api/settings/monitor",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({domains:$("monitorDomains").value,remindDays:Number($("monitorRemindDays").value),checkTime:$("monitorCheckTime").value.trim(),dailyRemind:$("monitorDailyRemind").checked,backorderNotify:$("monitorBackorderNotify").checked,runOnStartup:$("monitorRunOnStartup").checked})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"保存失败");ok(data.message||"监控设置保存成功，已立即生效");}catch(error){fail("保存监控设置",error);}finally{button.disabled=false;}load().catch(error=>toast("刷新页面数据失败："+error.message,"err"));});
+$("monitorClearRemind").addEventListener("click",async()=>{
+  if(!confirm("确定清除提醒记录？清除后到期提醒和抢注提醒都会再发一次。"))return;
+  const button=$("monitorClearRemind");button.disabled=true;
+  try{const response=await fetch("/api/settings/reminders/clear",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({})});
+  const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"清除失败");
+  ok(data.message);}catch(error){fail("清除提醒记录",error);}finally{button.disabled=false;}
+});
 $("monitorReset").addEventListener("click",async()=>{if(!confirm("确定放弃面板中的监控设置，恢复为 .env 里的值？"))return;const button=$("monitorReset");button.disabled=true;try{const response=await fetch("/api/settings/monitor",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({reset:true})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"恢复失败");ok(data.message||"已恢复为 .env 配置");}catch(error){fail("恢复 .env 配置",error);}finally{button.disabled=false;}load().catch(error=>toast("刷新页面数据失败："+error.message,"err"));});
 $("telegram").addEventListener("submit",async(event)=>{event.preventDefault();const button=event.target.querySelector("button");button.disabled=true;try{const response=await fetch("/api/settings/telegram",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:$("telegramToken").value,chatId:$("telegramChatId").value,apiBase:$("telegramApiBase").value,enabled:$("telegramEnabled").checked})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"保存失败");ok(data.message||"Telegram 配置保存成功，已加密存储");$("telegramToken").value="";}catch(error){fail("保存 Telegram 配置",error);}finally{button.disabled=false;}load().catch(error=>toast("刷新页面数据失败："+error.message,"err"));});
 $("logout").addEventListener("click",async()=>{try{const response=await fetch("/api/auth/logout",{method:"POST"});if(!response.ok)throw new Error("服务端未接受退出请求");location.href="/login";}catch(error){fail("退出登录",error);}});

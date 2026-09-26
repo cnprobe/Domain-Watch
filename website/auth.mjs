@@ -45,6 +45,48 @@ function validatePassword(value) {
   return password;
 }
 
+// —— 域名备注（续费价格 / 商家 / 商家网站）——
+// RDAP 与 WHOIS 都不提供续费价格和商家官网，这三项只能自己填；
+// 商家名会在监控列表里用注册局返回的 registrar 名兜底显示。
+const DOMAIN_META_MAX_ENTRIES = 500;
+const META_TEXT_MAX = 120;
+const META_URL_MAX = 300;
+
+function normalizeMetaDomain(value) {
+  const text = String(value || "").trim().toLowerCase().replace(/^\.+/, "").replace(/\.+$/, "");
+  if (!text || text.length > 253 || !/^[a-z0-9.-]+$/.test(text) || !text.includes(".")) {
+    throw fail("invalid_domain_meta", `域名 "${String(value || "").slice(0, 60)}" 不是合法的域名`);
+  }
+  return text;
+}
+
+function normalizeMetaText(value, label) {
+  const text = String(value ?? "").trim().replace(/\s+/g, " ");
+  if (text.length > META_TEXT_MAX) {
+    throw fail("invalid_domain_meta", `${label}超过 ${META_TEXT_MAX} 个字符`);
+  }
+  return text;
+}
+
+function normalizeMetaUrl(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  if (text.length > META_URL_MAX) throw fail("invalid_domain_meta", `商家网站地址超过 ${META_URL_MAX} 个字符`);
+  let url;
+  try {
+    url = new URL(/^[a-z]+:\/\//i.test(text) ? text : `https://${text}`);
+  } catch {
+    throw fail("invalid_domain_meta", `商家网站地址不合法：${text.slice(0, 60)}`);
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw fail("invalid_domain_meta", "商家网站地址必须以 http:// 或 https:// 开头");
+  }
+  if (url.username || url.password) {
+    throw fail("invalid_domain_meta", "商家网站地址不能包含用户名或密码");
+  }
+  return url.toString();
+}
+
 const SCRYPT_KEYLEN = 64;
 const SCRYPT_SALT_BYTES = 16;
 const scryptAsync = promisify(scrypt);
@@ -326,6 +368,66 @@ export class SettingsStore {
     } catch (error) {
       throw fail("telegram_decrypt_failed", `cannot decrypt Telegram settings: ${error.message}`, error);
     }
+  }
+
+  /** 读取全部域名备注 */
+  async getDomainMeta() {
+    const raw = this.data.domainMeta;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const out = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (!value || typeof value !== "object") continue;
+      out[String(key).toLowerCase()] = {
+        price: String(value.price || ""),
+        vendor: String(value.vendor || ""),
+        vendorUrl: String(value.vendorUrl || ""),
+      };
+    }
+    return out;
+  }
+
+  /**
+   * 保存域名备注。
+   * set: { "example.com": { price, vendor, vendorUrl } }；值为 null 表示删除该条。
+   * remove: ["example.com", ...] 显式删除。
+   */
+  async setDomainMeta({ set, remove } = {}) {
+    const current = await this.getDomainMeta();
+    const applyDelete = (rawDomain) => {
+      delete current[normalizeMetaDomain(rawDomain)];
+    };
+
+    if (Array.isArray(remove)) {
+      for (const item of remove) applyDelete(item);
+    }
+    if (set && typeof set === "object" && !Array.isArray(set)) {
+      for (const [rawDomain, value] of Object.entries(set)) {
+        const domain = normalizeMetaDomain(rawDomain);
+        if (value === null || value === undefined) {
+          delete current[domain];
+          continue;
+        }
+        if (typeof value !== "object" || Array.isArray(value)) {
+          throw fail("invalid_domain_meta", `${domain} 的备注必须是对象`);
+        }
+        const price = normalizeMetaText(value.price, "续费价格");
+        const vendor = normalizeMetaText(value.vendor, "商家");
+        const vendorUrl = normalizeMetaUrl(value.vendorUrl);
+        if (!price && !vendor && !vendorUrl) {
+          delete current[domain];
+          continue;
+        }
+        current[domain] = { price, vendor, vendorUrl };
+      }
+    }
+
+    const keys = Object.keys(current);
+    if (keys.length > DOMAIN_META_MAX_ENTRIES) {
+      throw fail("invalid_domain_meta", `最多保存 ${DOMAIN_META_MAX_ENTRIES} 条域名备注`);
+    }
+    this.data.domainMeta = current;
+    await this.save();
+    return current;
   }
 
   async setTelegram({ token, chatId, apiBase, enabled = true }) {

@@ -143,7 +143,7 @@ export class TelegramNotifier {
   }
 }
 
-export function createMonitor({ config, domainWatch, notifier, dataDir, logger = console }) {
+export function createMonitor({ config, domainWatch, notifier, dataDir, settingsStore = null, logger = console }) {
   const statePath = join(dataDir, "reminders.json");
 
   // 这些值可以在运行时通过 applyConfig() 热更新（设置面板保存后立即生效）
@@ -183,7 +183,27 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, logger =
     }
   }
 
-  async function check(simulateExpired = false) {
+  /**
+   * 把一次检查的结论写进日志。之前只在开始时打一行「开始每日检查」，
+   * 结束时不留痕，于是「定时跑了吗」「为什么没收到通知」都无法从日志判断。
+   */
+  function logCheckSummary(source, summary) {
+    const parts = [
+      `检查 ${summary.checked} 个`,
+      `提醒 ${summary.reminded.length} 个`,
+      `跳过 ${summary.skipped.length} 个`,
+      `失败 ${summary.failed.length} 个`,
+    ];
+    if (summary.reminded.length > 0) parts.push(`已提醒：${summary.reminded.join("、")}`);
+    if (summary.skipped.length > 0) parts.push(`跳过原因：${summary.skipped.join("；")}`);
+    if (summary.failed.length > 0) parts.push(`失败原因：${summary.failed.join("；")}`);
+    if (summary.reminded.length === 0 && summary.skipped.length > 0) {
+      parts.push(`（提醒窗口 ${remindDays} 天内才通知，窗口外的域名不会发消息）`);
+    }
+    logger.info(`[domain-watch] ${source}完成：${parts.join("，")}`);
+  }
+
+  async function check(simulateExpired = false, source = "手动检查") {
     if (running) {
       return { ok: false, checked: 0, reminded: [], skipped: [], failed: ["已有检查任务正在运行"] };
     }
@@ -242,6 +262,7 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, logger =
               const expiredDays = Math.max(1, Math.abs(daysLeft));
               const message = `域名 ${domain} 已于 ${domainWatch.formatDate(expirationMs)} 到期（已过期 ${expiredDays} 天），已进入删除期，可续费赎回或关注抢注`;
               await notifier.send("🔥 域名抢注提醒", message);
+              logger.info(`[domain-watch] 已发送抢注提醒：${domain}（已过期 ${expiredDays} 天）`);
               records[domain] = {
                 expiration,
                 remindedAt: current?.remindedAt || "",
@@ -280,6 +301,7 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, logger =
 
           const message = `域名 ${domain} 将于 ${domainWatch.formatDate(expirationMs)} 到期（剩余 ${daysLeft} 天），请及时续费`;
           await notifier.send("⚠️ 域名到期提醒", message);
+          logger.info(`[domain-watch] 已发送到期提醒：${domain}（剩余 ${daysLeft} 天）`);
           records[domain] = { expiration, remindedAt: new Date().toISOString() };
           changed = true;
           summary.reminded.push(`${domain}（剩余 ${daysLeft} 天）`);
@@ -293,6 +315,7 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, logger =
 
       if (changed) await saveState();
       summary.ok = summary.failed.length === 0;
+      logCheckSummary(source, summary);
       return summary;
     } finally {
       running = false;
@@ -300,6 +323,31 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, logger =
   }
 
   /** 移除域名时同步清掉它的提醒去重记录，避免重新添加后被误判为"已提醒过" */
+  /**
+   * 清除提醒记录，让到期提醒和抢注提醒都能再发一次。
+   * 同时重置两个标记：remindedAt（今日已提醒）与 backorderAt（已发过抢注提醒）。
+   * 记录里的 expiration 会保留，方便对照；不传域名则清全部监控域名。
+   */
+  async function clearReminderFlags(list) {
+    const records = await loadState();
+    const targets =
+      list === undefined
+        ? domains.slice()
+        : (Array.isArray(list) ? list : [list]).map((item) => String(item || "").trim().toLowerCase()).filter(Boolean);
+    const cleared = [];
+    for (const domain of targets) {
+      const record = records[domain];
+      if (!record || (!record.remindedAt && !record.backorderAt)) continue;
+      records[domain] = { ...record, remindedAt: "", backorderAt: "" };
+      cleared.push(domain);
+    }
+    if (cleared.length > 0) {
+      await saveState();
+      logger.info(`[domain-watch] 已清除提醒记录（含抢注标记）：${cleared.join("、")}`);
+    }
+    return cleared;
+  }
+
   async function forgetDomains(list) {
     const targets = (Array.isArray(list) ? list : [list]).map((item) => String(item || "").trim()).filter(Boolean);
     if (targets.length === 0) return [];
@@ -312,6 +360,14 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, logger =
       }
     }
     if (removed.length > 0) await saveState();
+    // 域名移出监控后，价格/商家这些备注也一并清掉，避免残留
+    if (settingsStore) {
+      try {
+        await settingsStore.setDomainMeta({ remove: targets });
+      } catch (error) {
+        logger.warn(`[domain-watch] 清理域名备注失败: ${messageOf(error)}`);
+      }
+    }
     return removed;
   }
 
@@ -360,12 +416,12 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, logger =
     if (!isDue(now) || lastScheduledKey === key) return;
     lastScheduledKey = key;
     logger.info(`[domain-watch] 开始每日检查（${checkTime.text}）`);
-    await check(false);
+    await check(false, "每日定时检查");
   }
 
   async function start() {
     await mkdir(dataDir, { recursive: true });
-    if (runOnStartup) await check(false);
+    if (runOnStartup) await check(false, "启动时检查");
     await runScheduledCheck();
     timer = setInterval(() => {
       runScheduledCheck().catch((error) => logger.error(`[domain-watch] 定时检查失败: ${messageOf(error)}`));
@@ -379,6 +435,7 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, logger =
 
   async function snapshot() {
     const records = await loadState();
+    const meta = settingsStore ? await settingsStore.getDomainMeta() : {};
     const items = [];
     const summary = { total: domains.length, ok: 0, expiring: 0, expired: 0, unknown: 0, failed: 0 };
 
@@ -399,6 +456,7 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, logger =
         else if (state === "expiring") summary.expiring++;
         else if (state === "expired") summary.expired++;
         else summary.unknown++;
+        const note = meta[domain] || {};
         items.push({
           ok: true,
           domain,
@@ -411,14 +469,24 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, logger =
           lastChanged: result.lastChanged || null,
           remindedAt: record?.remindedAt || null,
           backorderAt: record?.backorderAt || null,
+          // 续费价格 / 商家 / 商家网站：RDAP 与 WHOIS 都不提供，需自行填写
+          price: note.price || "",
+          vendor: note.vendor || "",
+          vendorUrl: note.vendorUrl || "",
+          registrarName: (result.registrar && result.registrar.name) || "",
         });
       } catch (error) {
         summary.failed++;
+        const note = meta[domain] || {};
         items.push({
           ok: false,
           domain,
           state: "failed",
           error: { code: error?.code || "unknown", message: error instanceof Error ? error.message : String(error) },
+          price: note.price || "",
+          vendor: note.vendor || "",
+          vendorUrl: note.vendorUrl || "",
+          registrarName: "",
         });
       }
     }
@@ -450,5 +518,5 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, logger =
     };
   }
 
-  return { check, snapshot, start, stop, status, applyConfig, currentConfig, forgetDomains };
+  return { check, snapshot, start, stop, status, applyConfig, currentConfig, forgetDomains, clearReminderFlags };
 }

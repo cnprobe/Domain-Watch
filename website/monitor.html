@@ -26,6 +26,14 @@
   .card-top { display:flex; align-items:baseline; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-bottom:16px; } h2 { margin:0; font-size:22px; letter-spacing:.07em; } h2::before { content:"❧ "; color:var(--gold); }
   table { width:100%; min-width:800px; border-collapse:collapse; font-size:14px; } th,td { padding:12px 9px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; } th { color:var(--ink-soft); font-size:12px; font-weight:400; letter-spacing:.08em; } tr:last-child td { border-bottom:0; }
   .pill { display:inline-block; padding:3px 9px; border:1px solid var(--gold-line); border-radius:7px; background:var(--paper-deep); color:var(--gold); font-size:12px; } .pill.ok { color:var(--fern); border-color:rgba(61,92,61,.45); } .pill.warn { color:var(--gold); } .pill.err { color:var(--rose); border-color:rgba(107,58,58,.45); }
+  .meta-edit-row td { background:rgba(28,28,28,.02); padding:16px 0; }
+  .meta-form { display:flex; gap:16px; align-items:flex-end; flex-wrap:wrap; }
+  .meta-form > div { flex:1 1 180px; min-width:0; }
+  .meta-form label { display:block; margin:0 0 5px; font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--ink-40); }
+  .meta-form input { width:100%; min-height:40px; padding:8px 10px; border:1px solid var(--line); border-radius:0; background:var(--paper); color:var(--ink); font:inherit; font-size:14px; }
+  .meta-form input:focus { outline:none; border-color:var(--ink); }
+  .meta-actions { flex:0 0 auto; display:flex; gap:10px; }
+  .meta-actions .button { padding:9px 16px; font-size:11px; }
   .empty { padding:30px 8px; color:var(--ink-soft); text-align:center; }
   .add-form { display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap; margin:0 0 18px; padding:14px 16px; border:1px dashed var(--gold-line); border-radius:var(--radius); background:var(--paper-deep); }
   .add-form input { flex:1 1 240px; min-height:44px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius); outline:none; background:var(--paper); color:var(--ink); font:inherit; font-size:15px; } .add-form input:focus { border-color:var(--gold); box-shadow:0 0 0 2px rgba(139,105,20,.12); } .add-form input::placeholder { color:var(--ink-soft); }
@@ -91,12 +99,24 @@ function toast(text, kind = "ok") {
 }
 const ok = (text) => toast(text, "ok");
 const fail = (action, error) => toast(action + "失败：" + ((error && error.message) || "未知错误"), "err");
+let lastItems = [];
 const stateNames = { ok:"正常", expiring:"即将到期", expired:"已过期", unknown:"信息不完整", failed:"查询失败" };
 const stateClasses = { ok:"ok", expiring:"warn", expired:"err", unknown:"", failed:"err" };
 function esc(value) { return String(value ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
 function setMessage(text, kind) { $("message").innerHTML = text ? `<span class="${esc(kind || "")}">${esc(text)}</span>` : ""; }
+function metaHost(url) { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } }
+/** 续费价格 / 商家 / 商家网站三列；商家留空时用注册局返回的注册商名兜底 */
+function metaCells(item) {
+  const price = esc(item.price || "—");
+  const vendor = esc(item.vendor || item.registrarName || "—");
+  const url = String(item.vendorUrl || "");
+  const link = url
+    ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(metaHost(url) || url)}</a>`
+    : '<span class="muted">—</span>';
+  return `<td>${price}</td><td>${vendor}</td><td>${link}</td>`;
+}
 function daysText(item) { if (item.daysLeft === null || item.daysLeft === undefined) return "—"; if (item.daysLeft < 0) return `已过期 ${Math.abs(item.daysLeft)} 天`; if (item.daysLeft === 0) return "今天到期"; return `剩余 ${item.daysLeft} 天`; }
-function render(data) { const s=data.summary||{}; $("total").textContent=s.total??0; $("normal").textContent=s.ok??0; $("expiring").textContent=s.expiring??0; $("expired").textContent=s.expired??0; $("telegram").textContent=data.telegramConfigured?"已配置":"未配置"; $("telegram").className="stat-value "+(data.telegramConfigured?"ok":"warn"); $("updated").textContent=data.checkedAt?"最后刷新："+new Date(data.checkedAt).toLocaleString("zh-CN"):"尚未刷新"; $("configLine").textContent=`配置来源：${data.configSource==="panel"?"设置面板":".env 文件"}　·　每日检查 ${data.checkTime||"—"}　·　提醒窗口 ${data.remindDays??"—"} 天`; const items=data.items||[]; if(!items.length){$("content").className="empty";$("content").innerHTML='没有配置监控域名，请到 <a href="/settings">设置页面</a> 填写。';return;} $("content").className=""; $("content").innerHTML="<table><thead><tr><th>域名</th><th>状态</th><th>到期时间</th><th>剩余时间</th><th>来源</th><th>最近提醒</th><th>操作</th></tr></thead><tbody>"+items.map(item=>{if(!item.ok)return `<tr><td><b>${esc(item.domain)}</b></td><td><span class="pill err">${esc(stateNames.failed)}</span></td><td colspan="4" class="err">${esc(item.error?.message||"查询失败")}</td><td><button class="link-btn" data-remove="${esc(item.domain)}" type="button">移除</button></td></tr>`;const reminded=item.remindedAt?new Date(item.remindedAt).toLocaleString("zh-CN"):"—";return `<tr><td><b>${esc(item.domain)}</b></td><td><span class="pill ${esc(stateClasses[item.state]||"")}">${esc(stateNames[item.state]||item.state)}</span></td><td>${esc(item.expirationDate||"—")}</td><td>${esc(daysText(item))}</td><td>${esc(item.source||"—")}</td><td class="muted">${esc(reminded)}</td><td><button class="link-btn" data-remove="${esc(item.domain)}" type="button">移除</button></td></tr>`;}).join("")+"</tbody></table>"; }
+function render(data) { const s=data.summary||{}; $("total").textContent=s.total??0; $("normal").textContent=s.ok??0; $("expiring").textContent=s.expiring??0; $("expired").textContent=s.expired??0; $("telegram").textContent=data.telegramConfigured?"已配置":"未配置"; $("telegram").className="stat-value "+(data.telegramConfigured?"ok":"warn"); $("updated").textContent=data.checkedAt?"最后刷新："+new Date(data.checkedAt).toLocaleString("zh-CN"):"尚未刷新"; $("configLine").textContent=`配置来源：${data.configSource==="panel"?"设置面板":".env 文件"}　·　每日检查 ${data.checkTime||"—"}　·　提醒窗口 ${data.remindDays??"—"} 天`; const items=data.items||[]; lastItems=items; if(!items.length){$("content").className="empty";$("content").innerHTML='没有配置监控域名，请到 <a href="/settings">设置页面</a> 填写。';return;} $("content").className=""; $("content").innerHTML="<table><thead><tr><th>域名</th><th>状态</th><th>到期时间</th><th>剩余时间</th><th>来源</th><th>续费价格</th><th>商家</th><th>商家网站</th><th>最近提醒</th><th>操作</th></tr></thead><tbody>"+items.map(item=>{if(!item.ok)return `<tr data-domain="${esc(item.domain)}"><td><b>${esc(item.domain)}</b></td><td><span class="pill err">${esc(stateNames.failed)}</span></td><td colspan="4" class="err">${esc(item.error?.message||"查询失败")}</td>${metaCells(item)}<td><button class="link-btn" data-edit="${esc(item.domain)}" type="button">编辑</button> <button class="link-btn" data-remove="${esc(item.domain)}" type="button">移除</button></td></tr>`;const reminded=item.remindedAt?new Date(item.remindedAt).toLocaleString("zh-CN"):"—";return `<tr data-domain="${esc(item.domain)}"><td><b>${esc(item.domain)}</b></td><td><span class="pill ${esc(stateClasses[item.state]||"")}">${esc(stateNames[item.state]||item.state)}</span></td><td>${esc(item.expirationDate||"—")}</td><td>${esc(daysText(item))}</td><td>${esc(item.source||"—")}</td>${metaCells(item)}<td class="muted">${esc(reminded)}</td><td><button class="link-btn" data-edit="${esc(item.domain)}" type="button">编辑</button> <button class="link-btn" data-remove="${esc(item.domain)}" type="button">移除</button></td></tr>`;}).join("")+"</tbody></table>"; }
 async function load() { $("refresh").disabled=true; try { const response=await fetch("/api/monitor",{headers:{Accept:"application/json"}}); if(response.status===401){location.href="/login?next=/monitor";return;} const data=await response.json(); if(!response.ok||data.ok===false&&data.error)throw new Error(data.error.message||"加载失败"); render(data); setMessage(""); } catch(error) { $("content").className="empty err"; $("content").textContent="加载失败："+error.message; fail("加载监控数据",new Error(error.message)); } finally { $("refresh").disabled=false; } }
 async function post(path,label) { const button=path.includes("check")?$("check"):$("test"); button.disabled=true; try { const response=await fetch(path,{method:"POST"}); if(response.status===401){location.href="/login?next=/monitor";return;} const data=await response.json(); if(!response.ok||data.ok===false)throw new Error(data.error?.message||data.message||"操作失败"); setMessage(label+"成功","ok"); await load(); } catch(error) { setMessage(label+"失败："+error.message,"err"); } finally { button.disabled=false; } }
 $("refresh").addEventListener("click",load); $("check").addEventListener("click",()=>post("/api/check","立即检查")); $("test").addEventListener("click",()=>post("/api/test-notify","Telegram 测试通知")); async function changeDomains(body) {
@@ -123,7 +143,55 @@ $("addForm").addEventListener("submit", async (event) => {
   catch (error) { fail("添加域名", error); }
   finally { button.disabled = false; }
 });
+function closeEditRows() {
+  for (const row of $("content").querySelectorAll("tr.meta-edit-row")) row.remove();
+}
+/** 在目标行后面插入一行备注编辑表单 */
+function openEditRow(domain) {
+  closeEditRows();
+  const item = (lastItems || []).find((entry) => entry.domain === domain);
+  if (!item) return;
+  const row = document.createElement("tr");
+  row.className = "meta-edit-row";
+  const vendorHost = item.vendorUrl ? metaHost(item.vendorUrl) : "";
+  row.innerHTML = `<td colspan="10"><div class="meta-form">
+    <div><label for="m-price-${esc(domain)}">续费价格</label><input id="m-price-${esc(domain)}" type="text" placeholder="例如 ¥85 / 年" value="${esc(item.price || "")}"></div>
+    <div><label for="m-vendor-${esc(domain)}">商家</label><input id="m-vendor-${esc(domain)}" type="text" placeholder="留空则显示注册商名" value="${esc(item.vendor || "")}"></div>
+    <div><label for="m-url-${esc(domain)}">商家网站</label><input id="m-url-${esc(domain)}" type="text" placeholder="例如 dash.cloudflare.com" value="${esc(vendorHost)}"></div>
+    <div class="meta-actions"><button class="button" data-save="${esc(domain)}" type="button">保存</button><button class="button secondary" data-cancel="1" type="button">取消</button></div>
+  </div></td>`;
+  const anchor = $("content").querySelector(`tr[data-domain="${CSS.escape(domain)}"]`);
+  if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(row, anchor.nextSibling);
+}
+async function saveMeta(domain) {
+  const price = ($(`m-price-${domain}`) || {}).value || "";
+  const vendor = ($(`m-vendor-${domain}`) || {}).value || "";
+  const vendorUrl = ($(`m-url-${domain}`) || {}).value || "";
+  const response = await fetch("/api/settings/domain-meta", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ set: { [domain]: { price, vendor, vendorUrl } } }),
+  });
+  if (response.status === 401) { location.href = "/login?next=/monitor"; return; }
+  const data = await response.json();
+  if (!response.ok || !data.ok) throw new Error(data.error?.message || "保存失败");
+  ok(data.message);
+  closeEditRows();
+  await load();
+}
 $("content").addEventListener("click", async (event) => {
+  const edit = event.target.closest("[data-edit]");
+  if (edit) { openEditRow(edit.getAttribute("data-edit")); return; }
+  const cancel = event.target.closest("[data-cancel]");
+  if (cancel) { closeEditRows(); return; }
+  const save = event.target.closest("[data-save]");
+  if (save) {
+    const domain = save.getAttribute("data-save");
+    save.disabled = true;
+    try { await saveMeta(domain); }
+    catch (error) { save.disabled = false; fail("保存域名备注", error); }
+    return;
+  }
   const target = event.target.closest("[data-remove]");
   if (!target) return;
   const domain = target.getAttribute("data-remove");

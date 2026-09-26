@@ -241,7 +241,7 @@ async function main() {
   if (Object.keys(savedRdap.tlds).length > 0) domainWatch.setRdapOverrides(savedRdap.tlds);
   // 监控参数优先使用设置面板保存的值，没有保存过才用 .env
   const monitorConfig = await settingsStore.getMonitorSettings();
-  const monitor = createMonitor({ config: monitorConfig, domainWatch, notifier, dataDir });
+  const monitor = createMonitor({ config: monitorConfig, domainWatch, notifier, dataDir, settingsStore });
   const legacyAdminToken = String(process.env.ADMIN_TOKEN || "").trim();
   let publicHtml = { value: null };
   let monitorHtml = { value: null };
@@ -504,6 +504,59 @@ async function main() {
             `检查时间 ${current.checkTime}，提醒天数 ${current.remindDays}`
         );
         sendJson(res, 200, { ok: true, monitorConfig: saved, monitor: monitor.status(), message: "监控配置已保存并立即生效" });
+      } catch (error) {
+        sendError(res, error);
+      }
+      return;
+    }
+
+    // 清除提醒记录（今日提醒 + 抢注提醒两个标记），让两类通知都能再发一次
+    if (req.method === "POST" && url.pathname === "/api/settings/reminders/clear") {
+      const auth = requireApiAuth(req, res);
+      if (!auth || !requireSameOriginForSession(req, res, auth)) return;
+      try {
+        const body = await readJsonBody(req);
+        const list =
+          body.domain === undefined
+            ? undefined
+            : domainWatch.parseDomains(String(body.domain || ""));
+        if (list !== undefined && list.length === 0) {
+          throw fail("invalid_domains", `无法识别为域名：${String(body.domain || "").trim().slice(0, 60)}`);
+        }
+        const cleared = await monitor.clearReminderFlags(list);
+        console.log(`[domain-watch] 清除提醒记录（设置面板）: ${cleared.length ? cleared.join("、") : "无记录"}`);
+        sendJson(res, 200, {
+          ok: true,
+          cleared,
+          count: cleared.length,
+          message:
+            cleared.length > 0
+              ? `已清除 ${cleared.length} 个域名的提醒记录，到期提醒与抢注提醒都可再次发送`
+              : "没有需要清除的今日提醒记录",
+        });
+      } catch (error) {
+        sendError(res, error);
+      }
+      return;
+    }
+
+    // 域名备注：续费价格 / 商家 / 商家网站（RDAP 与 WHOIS 都不提供，需自行填写）
+    if (req.method === "PUT" && url.pathname === "/api/settings/domain-meta") {
+      const auth = requireApiAuth(req, res);
+      // 必须传 auth，否则 requireSameOriginForSession 拿不到 session 会跳过同源校验
+      if (!auth || !requireSameOriginForSession(req, res, auth)) return;
+      try {
+        const body = await readJsonBody(req);
+        if (body.set === undefined && body.remove === undefined) {
+          throw fail("invalid_domain_meta", "请提供 set 或 remove");
+        }
+        const saved = await settingsStore.setDomainMeta({ set: body.set, remove: body.remove });
+        sendJson(res, 200, {
+          ok: true,
+          domainMeta: saved,
+          count: Object.keys(saved).length,
+          message: `已保存 ${Object.keys(saved).length} 条域名备注`,
+        });
       } catch (error) {
         sendError(res, error);
       }
