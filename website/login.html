@@ -5,38 +5,133 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>登录 - Domain Watch</title>
 <style>
-  :root { --ink:#2d4a2d; --ink-soft:#5d705d; --gold:#8b6914; --fern:#3d5c3d; --paper:#faf5ef; --paper-deep:#f4ede3; --rose:#6b3a3a; --line:rgba(45,74,45,.22); --gold-line:rgba(139,105,20,.58); --shadow:0 2px 8px rgba(45,74,45,.08); --shadow-hover:0 4px 12px rgba(139,105,20,.12); --radius:10px; }
-  * { box-sizing:border-box; }
-  html { min-height:100%; background:var(--paper); background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.72' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)' opacity='.035'/%3E%3C/svg%3E"); }
-  body { min-height:100vh; margin:0; display:grid; place-items:center; padding:24px; color:var(--ink); font-family:Georgia,"Times New Roman","Noto Serif SC","Songti SC",serif; line-height:1.6; }
-  .card { width:100%; max-width:430px; padding:30px; border:1px solid var(--line); border-radius:var(--radius); background:var(--paper); box-shadow:var(--shadow); transition:border-color .3s ease,box-shadow .3s ease; } .card:hover { border-color:var(--gold-line); box-shadow:var(--shadow-hover); }
-  .mark { width:42px; height:42px; color:var(--fern); } .brand { display:flex; align-items:center; gap:12px; margin-bottom:30px; } .brand-name { display:block; font-size:19px; font-weight:700; letter-spacing:.12em; } .brand-latin { display:block; color:var(--gold); font-size:12px; font-style:italic; letter-spacing:.08em; }
-  .ornament { display:flex; align-items:center; gap:12px; color:var(--gold); font-size:11px; letter-spacing:.24em; text-transform:uppercase; } .ornament::before,.ornament::after { content:""; display:block; width:40px; height:1px; background:var(--gold-line); }
-  h1 { margin:16px 0 6px; font-size:36px; letter-spacing:.05em; line-height:1.05; } .sub { margin:0 0 24px; color:var(--ink-soft); font-size:14px; }
-  label { display:block; margin:15px 0 6px; color:var(--ink-soft); font-size:13px; letter-spacing:.04em; } input { width:100%; min-height:46px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius); outline:none; background:var(--paper); color:var(--ink); font:inherit; font-size:15px; transition:border-color .3s ease,box-shadow .3s ease; } input:focus { border-color:var(--gold); box-shadow:0 0 0 2px rgba(139,105,20,.12); }
-  .button { width:100%; margin-top:22px; display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:10px 15px; border:1px solid var(--gold-line); border-radius:var(--radius); background:var(--ink); color:var(--paper); font:inherit; font-size:14px; letter-spacing:.04em; text-decoration:none; cursor:pointer; box-shadow:var(--shadow); transition:background-color .3s ease,color .3s ease,border-color .3s ease,box-shadow .3s ease; } .button:hover,.button:focus-visible { background:var(--paper-deep); color:var(--ink); border-color:var(--gold); box-shadow:var(--shadow-hover); } .button:active { background:var(--fern); } .button:focus-visible { outline:2px solid rgba(139,105,20,.35); outline-offset:3px; }
-  #message { min-height:24px; margin-top:12px; color:var(--rose); font-size:13px; } .hint { margin-top:20px; padding-top:16px; border-top:1px solid var(--line); color:var(--ink-soft); font-size:12px; line-height:1.8; }
-  @media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none !important; } }
+  /* ===== Swiss International 基础层 · 四页共用 · 修改需同步 ===== */
+  :root {
+    --black: #000000;
+    --white: #ffffff;
+    --red: #ff0000;
+    --muted: #525252;
+    --faint: #6b6b6b;
+    --line: #cccccc;
+    --wash: #f0f0f0;
+    --sans: "Helvetica Neue", Helvetica, "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+    --nav-h: 76px;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--white); }
+  body { margin: 0; background: var(--white); color: var(--black); font-family: var(--sans); font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  h1, h2, h3, h4 { margin: 0; font-family: var(--sans); font-weight: 700; letter-spacing: -0.02em; line-height: 1.05; }
+  a { color: var(--black); }
+  ::selection { background: var(--black); color: var(--white); }
+  /* 标签：小号、大写、宽字距 */
+  .label, .stat-label, th, .card-kicker { font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--faint); }
+  .muted { color: var(--muted); }
+  .ok { color: var(--black); }
+  .warn { color: var(--black); }
+  .err { color: var(--red); }
+  .page { max-width: 1280px; margin: 0 auto; padding: calc(var(--nav-h) + 48px) 32px 80px; }
+  /* 导航：白底黑字、细边框、方角 */
+  .topbar { position: fixed; top: 0; left: 0; right: 0; z-index: 50; background: var(--white); border-bottom: 1px solid var(--black); }
+  .topbar-inner { display: flex; align-items: stretch; justify-content: space-between; max-width: 1280px; margin: 0 auto; }
+  .wordmark { display: flex; flex-direction: column; justify-content: center; padding: 14px 24px 14px 0; font-size: 18px; font-weight: 700; letter-spacing: -0.01em; color: var(--black); text-decoration: none; white-space: nowrap; }
+  .wordmark span { font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--faint); }
+  .nav { display: flex; align-items: stretch; }
+  .nav-link { display: inline-flex; align-items: center; gap: 6px; padding: 0 20px; border-left: 1px solid var(--line); font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--black); background: none; text-decoration: none; cursor: pointer; transition: color 0.15s ease-out, background-color 0.15s ease-out, border-color 0.15s ease-out; }
+  .nav-link:hover, .nav-link:focus-visible { color: var(--red); background: var(--wash); border-left-color: var(--red); }
+  .nav-link::after { content: "\2192"; }
+  /* 按钮：方角、粗体、纯不透明度过渡；箭头是排版的一部分 */
+  .button { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 22px; border: 1px solid var(--black); border-radius: 0; background: var(--black); color: var(--white); font-family: var(--sans); font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; text-decoration: none; cursor: pointer; transition: opacity 0.15s ease-out, color 0.15s ease-out, background-color 0.15s ease-out, border-color 0.15s ease-out; }
+  .button::after { content: "\2192"; }
+  .button:hover, .button:focus-visible { opacity: 0.8; }
+  .button:active { opacity: 0.7; }
+  .button:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+  .button.secondary { background: var(--white); color: var(--black); }
+  .button.secondary:hover, .button.secondary:focus-visible { background: var(--black); color: var(--white); }
+  .button:disabled { opacity: 0.4; cursor: default; }
+  /* 卡片：1px 黑边、白底、方角 */
+  .card { border: 1px solid var(--black); border-radius: 0; background: var(--white); padding: 28px 32px; transition: border-color 0.15s ease-out, background-color 0.15s ease-out; }
+  .card:hover { border-color: var(--red); }
+  /* 引线延伸：左细线由灰变红，背景转浅灰——网格被激活，而不是被装饰 */
+  .row-line { border-left: 1px solid var(--line); padding-left: 20px; transition: border-color 0.15s ease-out, background-color 0.15s ease-out; }
+  .row-line:hover { border-left-color: var(--red); background: var(--wash); }
+  .row-line .row-title { font-weight: 700; letter-spacing: -0.01em; transition: color 0.15s ease-out; }
+  .row-line:hover .row-title, .row-line:hover .row-label { color: var(--red); }
+  /* 输入：1px 黑边、方角、无衬线 */
+  input[type=text], input[type=password], input[type=number], textarea, select { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--black); border-radius: 0; background: var(--white); color: var(--black); font-family: var(--sans); font-size: 15px; line-height: 1.5; outline: none; transition: border-color 0.15s ease-out; }
+  textarea { min-height: 132px; resize: vertical; font-size: 14px; line-height: 1.6; }
+  input::placeholder, textarea::placeholder { color: var(--faint); }
+  input:focus, textarea:focus, select:focus { border-color: var(--red); }
+  input[type=number]:focus, textarea:focus { border-color: var(--red); }
+  .check { display: flex; align-items: center; gap: 10px; margin: 20px 0 0; font-size: 13px; letter-spacing: 0.04em; color: var(--muted); }
+  .check input { width: 15px; height: 15px; min-height: 0; accent-color: var(--black); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 32px; }
+  /* 段落级提示：离标题远（20px），离所属表单保持 24px；紧邻的下一段还有提示时，
+     两段之间拉近到 8px，让它们读起来是一组，而不是各自独立的两行灰字。 */
+  .hint { margin: 20px 0 24px; font-size: 14px; line-height: 1.7; color: var(--muted); }
+  .hint:has(+ .hint) { margin-bottom: 8px; }
+  .hint + .hint { margin-top: 0; }
+  /* 字段级提示（在 .grid 内）贴着自己的输入框，不吃段落级那份标题间距 */
+  .grid .hint { margin: 4px 0 24px; }
+  .hint code { font-family: var(--sans); font-size: 13px; font-weight: 700; }
+  .actions { display: flex; gap: 12px; flex-wrap: nowrap; margin-top: 28px; }
+  /* 表格：黑线、无斑马纹 */
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-weight: 700; border-bottom: 2px solid var(--black); }
+  td { border-top: 1px solid var(--line); vertical-align: top; }
+  /* 状态块：方角细边，无阴影 */
+  .pill { display: inline-block; padding: 3px 9px; border: 1px solid var(--black); border-radius: 0; background: var(--white); color: var(--black); font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
+  .pill.err { border-color: var(--red); color: var(--red); }
+  .pill.warn { background: var(--black); color: var(--white); }
+  .toasts { position: fixed; top: 20px; right: 20px; z-index: 60; display: flex; flex-direction: column; gap: 12px; width: min(400px, calc(100vw - 40px)); pointer-events: none; }
+  .toast { pointer-events: auto; display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border: 1px solid var(--black); background: var(--white); color: var(--black); font-size: 14px; line-height: 1.6; animation: cut-in 0.15s ease-out both; }
+  .toast.err { border-color: var(--red); }
+  .toast .toast-icon { flex: none; font-weight: 700; }
+  .toast.err .toast-icon { color: var(--red); }
+  .toast .toast-text { flex: 1; word-break: break-word; }
+  .toast .toast-close { flex: none; width: 22px; height: 22px; padding: 0; border: 0; background: none; color: var(--faint); font-family: var(--sans); font-size: 16px; line-height: 1; cursor: pointer; }
+  .toast .toast-close:hover { color: var(--red); }
+  @keyframes cut-in { from { opacity: 0; } to { opacity: 1; } }
+  .link-btn { padding: 0; border: 0; background: none; color: var(--black); font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; transition: color 0.15s ease-out; }
+  .link-btn:hover, .link-btn:focus-visible { color: var(--red); }
+  .link-btn:disabled { opacity: 0.4; cursor: default; }
+  .hidden { display: none; }
+  footer { display: flex; justify-content: space-between; gap: 24px; margin-top: 72px; padding: 20px 0 0; border-top: 1px solid var(--black); font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--faint); }
+  @media (max-width: 860px) {
+    .page { padding: 32px 20px 56px; }
+    .actions { flex-wrap: wrap; }
+    .topbar { position: static; }
+    .topbar-inner { flex-direction: column; }
+    .nav { flex-wrap: wrap; border-top: 1px solid var(--line); }
+    .nav-link { border-left: 0; border-top: 1px solid var(--line); padding: 12px 16px 12px 0; margin-right: 16px; }
+    .card { padding: 20px; }
+    footer { flex-direction: column; gap: 10px; margin-top: 48px; }
+  }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+  /* ===== 登录页专属 ===== */
+  body { display: flex; align-items: center; min-height: 100vh; padding: 48px 32px; }
+  .login { width: 100%; max-width: 460px; }
+  .login .wordmark { padding: 0 0 32px; }
+  h1 { font-size: clamp(40px, 7vw, 72px); }
+  .sub { margin: 12px 0 0; font-size: 15px; color: var(--muted); }
+  form { margin-top: 40px; }
+  .button { width: 100%; margin-top: 32px; }
+  #message { min-height: 22px; margin-top: 14px; font-size: 14px; }
+  .hint { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 13px; }
+  @media (max-width: 860px) { body { align-items: flex-start; padding: 32px 20px; } }
 </style>
 </head>
 <body>
-<main class="card">
-  <div class="brand">
-    <svg class="mark" viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="M24 43V9M24 30c-7-1-12-5-13-12 7 0 12 4 13 12Zm0-8c7-1 12-5 13-12-7 0-12 4-13 12Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M24 15c-3-4-3-8 0-12 3 4 3 8 0 12Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
-    <div><span class="brand-name">DOMAIN WATCH</span><span class="brand-latin">Private collection</span></div>
-  </div>
-  <div class="ornament">Curator Access</div>
+<main class="login">
+  <a class="wordmark" href="/">Domain Watch<span>Private collection</span></a>
   <h1>登录</h1>
-  <p class="sub">单用户监控面板登录</p>
+  <p class="sub">单用户监控面板</p>
   <form id="form">
-    <label for="username">用户名</label>
-    <input id="username" name="username" autocomplete="username" required autofocus>
-    <label for="password">密码</label>
-    <input id="password" name="password" type="password" autocomplete="current-password" required>
-    <button class="button" id="submit" type="submit">进入标本室</button>
+    <div><label for="username">用户名</label><input id="username" name="username" autocomplete="username" required autofocus></div>
+    <div><label for="password">密码</label><input id="password" name="password" type="password" autocomplete="current-password" required></div>
+    <button class="button" id="submit" type="submit">登录</button>
   </form>
   <div id="message" aria-live="polite"></div>
-  <div class="hint">首次启动时，用户名和随机初始密码会显示在 Docker 日志中。登录后请立即在设置页面修改密码。</div>
+  <p class="hint">首次启动时，用户名与随机初始密码只显示一次，写在 Docker 日志里。登录后请立即在设置页修改密码。</p>
 </main>
 <script>
 "use strict";

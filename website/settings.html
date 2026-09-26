@@ -5,51 +5,141 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>设置 - Domain Watch</title>
 <style>
-  :root { --ink:#2d4a2d; --ink-soft:#5d705d; --gold:#8b6914; --paper:#faf5ef; --paper-deep:#f4ede3; --rose:#6b3a3a; --fern:#3d5c3d; --line:rgba(45,74,45,.22); --gold-line:rgba(139,105,20,.58); --shadow:0 2px 8px rgba(45,74,45,.08); --shadow-hover:0 4px 12px rgba(139,105,20,.12); --radius:10px; }
-  * { box-sizing:border-box; }
-  html { background:var(--paper); background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.72' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)' opacity='.035'/%3E%3C/svg%3E"); }
-  body { margin:0; color:var(--ink); font-family:Georgia,"Times New Roman","Noto Serif SC","Songti SC",serif; line-height:1.6; }
-  .page { max-width:920px; margin:0 auto; padding:28px 24px 72px; }
-  .topbar { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:14px 0 22px; border-bottom:1px solid var(--line); }
-  .brand { display:flex; align-items:center; gap:12px; } .mark { width:38px; height:38px; color:var(--fern); flex:0 0 auto; } .brand-name { display:block; font-size:19px; font-weight:700; letter-spacing:.12em; } .brand-latin { display:block; color:var(--gold); font-size:12px; font-style:italic; letter-spacing:.08em; }
-  .nav { display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
-  .button { display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:10px 15px; border:1px solid var(--gold-line); border-radius:var(--radius); background:var(--ink); color:var(--paper); font:inherit; font-size:14px; letter-spacing:.04em; text-decoration:none; cursor:pointer; box-shadow:var(--shadow); transition:background-color .3s ease,color .3s ease,border-color .3s ease,box-shadow .3s ease; }
-  .button:hover,.button:focus-visible { background:var(--paper-deep); color:var(--ink); border-color:var(--gold); box-shadow:var(--shadow-hover); } .button.secondary { background:var(--paper); color:var(--ink); border-color:var(--line); }
-  .button.secondary:hover,.button.secondary:focus-visible { background:var(--gold); color:var(--paper); border-color:var(--gold); } .button.accent { background:var(--gold); color:var(--paper); } .button.accent:hover,.button.accent:focus-visible { background:var(--ink); color:var(--paper); } .button:focus-visible { outline:2px solid rgba(139,105,20,.35); outline-offset:3px; }
-  .button:active { background:var(--fern); border-color:var(--gold); }
-  .ornament { display:flex; align-items:center; gap:12px; margin-top:38px; color:var(--gold); font-size:12px; letter-spacing:.24em; text-transform:uppercase; } .ornament::before,.ornament::after { content:""; display:block; width:48px; height:1px; background:var(--gold-line); }
-  h1 { margin:16px 0 6px; font-size:clamp(34px,6vw,60px); letter-spacing:.05em; line-height:1.05; } .sub { margin:0 0 28px; color:var(--ink-soft); font-size:16px; }
-  #message { min-height:26px; margin:10px 0; font-size:14px; } .ok { color:var(--fern); } .err { color:var(--rose); }
-  .summary { display:flex; gap:28px; flex-wrap:wrap; margin:0 0 26px; } .summary-item { min-width:120px; } .summary-item b { display:block; color:var(--ink); font-size:22px; } .summary-item span { color:var(--ink-soft); font-size:12px; letter-spacing:.08em; }
-  .card { margin:0 0 20px; padding:24px; border:1px solid var(--line); border-radius:var(--radius); background:var(--paper); box-shadow:var(--shadow); transition:border-color .3s ease,box-shadow .3s ease; } .card:hover { border-color:var(--gold-line); box-shadow:var(--shadow-hover); } h2 { margin:0 0 8px; font-size:22px; letter-spacing:.07em; } h2::before { content:"❧ "; color:var(--gold); } .hint { margin:0 0 18px; color:var(--ink-soft); font-size:13px; line-height:1.7; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; } label { display:block; margin-bottom:6px; color:var(--ink-soft); font-size:13px; letter-spacing:.04em; }
-  input[type=text],input[type=password] { width:100%; min-height:44px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius); outline:none; background:var(--paper); color:var(--ink); font:inherit; font-size:15px; transition:border-color .3s ease,box-shadow .3s ease; } input::placeholder { color:var(--ink-soft); } input:focus { border-color:var(--gold); box-shadow:0 0 0 2px rgba(139,105,20,.12); }
-  input[type=number],textarea { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius); outline:none; background:var(--paper); color:var(--ink); font:inherit; font-size:15px; transition:border-color .3s ease,box-shadow .3s ease; } input[type=number] { min-height:44px; } textarea { min-height:44px; max-height:60vh; resize:vertical; line-height:1.45; overflow:auto; } textarea#rdapJson { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:13px; }
-  textarea::placeholder { color:var(--ink-soft); } input[type=number]:focus,textarea:focus { border-color:var(--gold); box-shadow:0 0 0 2px rgba(139,105,20,.12); }
-  .muted { color:var(--ink-soft); font-weight:400; font-style:normal; } .check em { margin-left:6px; font-size:12px; }
-  .toasts { position:fixed; top:18px; right:18px; z-index:60; display:flex; flex-direction:column; gap:10px; width:min(360px,calc(100vw - 36px)); pointer-events:none; }
-  .toast { pointer-events:auto; display:flex; align-items:flex-start; gap:10px; padding:12px 14px; border:1px solid var(--line); border-left:4px solid var(--fern); border-radius:var(--radius); background:var(--paper); box-shadow:var(--shadow-hover); color:var(--ink); font-size:14px; line-height:1.55; animation:toast-in .26s ease both; transition:opacity .2s ease,transform .2s ease; }
-  .toast.err { border-left-color:var(--rose); } .toast .toast-icon { flex:none; font-size:14px; line-height:1.5; color:var(--fern); } .toast.err .toast-icon { color:var(--rose); }
-  .toast .toast-text { flex:1; word-break:break-word; } .toast .toast-close { flex:none; width:22px; height:22px; margin:-2px -4px 0 0; padding:0; border:0; background:transparent; color:var(--ink-soft); font:inherit; font-size:16px; line-height:1; cursor:pointer; border-radius:4px; } .toast .toast-close:hover { color:var(--ink); background:var(--paper-deep); }
-  @keyframes toast-in { from { opacity:0; transform:translateY(-10px); } to { opacity:1; transform:none; } }
-  @media (prefers-reduced-motion:reduce) { .toast { animation:none; } }
-  .check { display:flex; align-items:center; gap:9px; margin:18px 0; color:var(--ink); }
- .check input { width:auto; accent-color:var(--gold); }
-  form button[type=submit] { margin-top:20px; } footer { display:flex; justify-content:space-between; gap:16px; margin-top:64px; padding-top:18px; border-top:1px solid var(--line); color:var(--ink-soft); font-size:12px; letter-spacing:.08em; }
-  @media (max-width:700px) { .page { padding:18px 16px 52px; } .topbar { align-items:flex-start; flex-direction:column; gap:16px; } .nav { justify-content:flex-start; } .card { padding:18px; } footer { flex-direction:column; margin-top:48px; } }
-  @media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none !important; } }
+  /* ===== Swiss International 基础层 · 四页共用 · 修改需同步 ===== */
+  :root {
+    --black: #000000;
+    --white: #ffffff;
+    --red: #ff0000;
+    --muted: #525252;
+    --faint: #6b6b6b;
+    --line: #cccccc;
+    --wash: #f0f0f0;
+    --sans: "Helvetica Neue", Helvetica, "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+    --nav-h: 76px;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--white); }
+  body { margin: 0; background: var(--white); color: var(--black); font-family: var(--sans); font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  h1, h2, h3, h4 { margin: 0; font-family: var(--sans); font-weight: 700; letter-spacing: -0.02em; line-height: 1.05; }
+  a { color: var(--black); }
+  ::selection { background: var(--black); color: var(--white); }
+  /* 标签：小号、大写、宽字距 */
+  .label, .stat-label, th, .card-kicker { font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--faint); }
+  .muted { color: var(--muted); }
+  .ok { color: var(--black); }
+  .warn { color: var(--black); }
+  .err { color: var(--red); }
+  .page { max-width: 1280px; margin: 0 auto; padding: calc(var(--nav-h) + 48px) 32px 80px; }
+  /* 导航：白底黑字、细边框、方角 */
+  .topbar { position: fixed; top: 0; left: 0; right: 0; z-index: 50; background: var(--white); border-bottom: 1px solid var(--black); }
+  .topbar-inner { display: flex; align-items: stretch; justify-content: space-between; max-width: 1280px; margin: 0 auto; }
+  .wordmark { display: flex; flex-direction: column; justify-content: center; padding: 14px 24px 14px 0; font-size: 18px; font-weight: 700; letter-spacing: -0.01em; color: var(--black); text-decoration: none; white-space: nowrap; }
+  .wordmark span { font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--faint); }
+  .nav { display: flex; align-items: stretch; }
+  .nav-link { display: inline-flex; align-items: center; gap: 6px; padding: 0 20px; border-left: 1px solid var(--line); font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--black); background: none; text-decoration: none; cursor: pointer; transition: color 0.15s ease-out, background-color 0.15s ease-out, border-color 0.15s ease-out; }
+  .nav-link:hover, .nav-link:focus-visible { color: var(--red); background: var(--wash); border-left-color: var(--red); }
+  .nav-link::after { content: "\2192"; }
+  /* 按钮：方角、粗体、纯不透明度过渡；箭头是排版的一部分 */
+  .button { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 22px; border: 1px solid var(--black); border-radius: 0; background: var(--black); color: var(--white); font-family: var(--sans); font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; text-decoration: none; cursor: pointer; transition: opacity 0.15s ease-out, color 0.15s ease-out, background-color 0.15s ease-out, border-color 0.15s ease-out; }
+  .button::after { content: "\2192"; }
+  .button:hover, .button:focus-visible { opacity: 0.8; }
+  .button:active { opacity: 0.7; }
+  .button:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+  .button.secondary { background: var(--white); color: var(--black); }
+  .button.secondary:hover, .button.secondary:focus-visible { background: var(--black); color: var(--white); }
+  .button:disabled { opacity: 0.4; cursor: default; }
+  /* 卡片：1px 黑边、白底、方角 */
+  .card { border: 1px solid var(--black); border-radius: 0; background: var(--white); padding: 28px 32px; transition: border-color 0.15s ease-out, background-color 0.15s ease-out; }
+  .card:hover { border-color: var(--red); }
+  /* 引线延伸：左细线由灰变红，背景转浅灰——网格被激活，而不是被装饰 */
+  .row-line { border-left: 1px solid var(--line); padding-left: 20px; transition: border-color 0.15s ease-out, background-color 0.15s ease-out; }
+  .row-line:hover { border-left-color: var(--red); background: var(--wash); }
+  .row-line .row-title { font-weight: 700; letter-spacing: -0.01em; transition: color 0.15s ease-out; }
+  .row-line:hover .row-title, .row-line:hover .row-label { color: var(--red); }
+  /* 输入：1px 黑边、方角、无衬线 */
+  input[type=text], input[type=password], input[type=number], textarea, select { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--black); border-radius: 0; background: var(--white); color: var(--black); font-family: var(--sans); font-size: 15px; line-height: 1.5; outline: none; transition: border-color 0.15s ease-out; }
+  textarea { resize: vertical; font-size: 14px; line-height: 1.6; }
+  input::placeholder, textarea::placeholder { color: var(--faint); }
+  input:focus, textarea:focus, select:focus { border-color: var(--red); }
+  input[type=number]:focus, textarea:focus { border-color: var(--red); }
+  .check { display: flex; align-items: center; gap: 10px; margin: 20px 0 0; font-size: 13px; letter-spacing: 0.04em; color: var(--muted); }
+  .check input { width: 15px; height: 15px; min-height: 0; accent-color: var(--black); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 32px; }
+  /* 监控域名用普通输入框的高度（44px），需要写多行时可拖右下角放大 */
+  #monitorDomains { min-height: 44px; }
+  #rdapJson { min-height: 200px; }
+  /* 段落级提示：离标题远（20px），离所属表单保持 24px；紧邻的下一段还有提示时，
+     两段之间拉近到 8px，让它们读起来是一组，而不是各自独立的两行灰字。 */
+  .hint { margin: 20px 0 24px; font-size: 14px; line-height: 1.7; color: var(--muted); }
+  .hint:has(+ .hint) { margin-bottom: 8px; }
+  .hint + .hint { margin-top: 0; }
+  /* 字段级提示（在 .grid 内）贴着自己的输入框，不吃段落级那份标题间距 */
+  .grid .hint { margin: 4px 0 24px; }
+  .hint code { font-family: var(--sans); font-size: 13px; font-weight: 700; }
+  .actions { display: flex; gap: 12px; flex-wrap: nowrap; margin-top: 28px; }
+  /* 表格：黑线、无斑马纹 */
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-weight: 700; border-bottom: 2px solid var(--black); }
+  td { border-top: 1px solid var(--line); vertical-align: top; }
+  /* 状态块：方角细边，无阴影 */
+  .pill { display: inline-block; padding: 3px 9px; border: 1px solid var(--black); border-radius: 0; background: var(--white); color: var(--black); font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
+  .pill.err { border-color: var(--red); color: var(--red); }
+  .pill.warn { background: var(--black); color: var(--white); }
+  .toasts { position: fixed; top: 20px; right: 20px; z-index: 60; display: flex; flex-direction: column; gap: 12px; width: min(400px, calc(100vw - 40px)); pointer-events: none; }
+  .toast { pointer-events: auto; display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border: 1px solid var(--black); background: var(--white); color: var(--black); font-size: 14px; line-height: 1.6; animation: cut-in 0.15s ease-out both; }
+  .toast.err { border-color: var(--red); }
+  .toast .toast-icon { flex: none; font-weight: 700; }
+  .toast.err .toast-icon { color: var(--red); }
+  .toast .toast-text { flex: 1; word-break: break-word; }
+  .toast .toast-close { flex: none; width: 22px; height: 22px; padding: 0; border: 0; background: none; color: var(--faint); font-family: var(--sans); font-size: 16px; line-height: 1; cursor: pointer; }
+  .toast .toast-close:hover { color: var(--red); }
+  @keyframes cut-in { from { opacity: 0; } to { opacity: 1; } }
+  .link-btn { padding: 0; border: 0; background: none; color: var(--black); font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; transition: color 0.15s ease-out; }
+  .link-btn:hover, .link-btn:focus-visible { color: var(--red); }
+  .link-btn:disabled { opacity: 0.4; cursor: default; }
+  .hidden { display: none; }
+  footer { display: flex; justify-content: space-between; gap: 24px; margin-top: 72px; padding: 20px 0 0; border-top: 1px solid var(--black); font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--faint); }
+  @media (max-width: 860px) {
+    .page { padding: 32px 20px 56px; }
+    .actions { flex-wrap: wrap; }
+    .topbar { position: static; }
+    .topbar-inner { flex-direction: column; }
+    .nav { flex-wrap: wrap; border-top: 1px solid var(--line); }
+    .nav-link { border-left: 0; border-top: 1px solid var(--line); padding: 12px 16px 12px 0; margin-right: 16px; }
+    .card { padding: 20px; }
+    footer { flex-direction: column; gap: 10px; margin-top: 48px; }
+  }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+  /* ===== 设置页专属 ===== */
+  h1 { font-size: clamp(38px, 6vw, 76px); }
+  .sub { margin: 10px 0 0; font-size: 15px; color: var(--muted); }
+  .summary { display: flex; gap: 0; flex-wrap: wrap; margin: 40px 0 0; border-top: 1px solid var(--black); border-bottom: 1px solid var(--black); }
+  .summary-item { flex: 1 1 160px; padding: 20px 24px; border-left: 1px solid var(--line); transition: border-color 0.15s ease-out, background-color 0.15s ease-out; }
+  .summary-item:first-child { border-left: 0; padding-left: 0; }
+  .summary-item:hover { border-left-color: var(--red); background: var(--wash); }
+  .summary-item b { display: block; font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+  .summary-item span { font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--faint); }
+  .section { margin-top: 40px; }
+  .section h2 { font-size: 26px; margin-bottom: 12px; }
+  .rdap-json { font-size: 12px; color: var(--faint); }
+  .rdap-json pre { max-height: 220px; margin-top: 12px; }
+  #rdapStatus { margin: 16px 0 0; }
+  .check-row { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+  @media (max-width: 860px) { .summary-item, .summary-item:first-child { border-left: 0; padding-left: 0; border-bottom: 1px solid var(--line); } }
 </style>
 </head>
 <body>
 <main class="page">
   <header class="topbar">
-    <div class="brand">
-      <svg class="mark" viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="M24 43V9M24 30c-7-1-12-5-13-12 7 0 12 4 13 12Zm0-8c7-1 12-5 13-12-7 0-12 4-13 12Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M24 15c-3-4-3-8 0-12 3 4 3 8 0 12Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
-      <div><span class="brand-name">DOMAIN WATCH</span><span class="brand-latin">Collection settings</span></div>
+    <div class="topbar-inner">
+      <a class="wordmark" href="/">Domain Watch<span>Collection settings</span></a>
+      <nav class="nav">
+        <a class="nav-link" href="/monitor">监控面板</a>
+        <a class="nav-link" href="/">域名查询</a>
+        <button class="nav-link" id="logout" type="button">退出登录</button>
+      </nav>
     </div>
-    <nav class="nav"><a class="button secondary" href="/monitor">监控面板</a><a class="button secondary" href="/">域名查询</a><button class="button secondary" id="logout">退出登录</button></nav>
   </header>
-  <div class="ornament">Curator Settings</div>
   <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
   <h1>设置</h1>
   <p class="sub">监控参数、账号与 Telegram 通知配置。</p>
@@ -65,14 +155,14 @@
         <div><label for="newPassword">新密码</label><input id="newPassword" type="password" minlength="12" required></div>
         <div><label for="confirmPassword">确认新密码</label><input id="confirmPassword" type="password" minlength="12" required></div>
       </div>
-      <button class="button" type="submit">更新账号密码</button>
-    </form>
+      <div class="actions">
+        <button class="button" type="submit">更新账号密码</button>
+      </div></form>
   </section>
 
   <section class="card">
     <h2>监控设置</h2>
     <p class="hint">保存后<strong>立即生效</strong>，无需重启容器。当前配置来源：<strong id="configSource">读取中…</strong>　<span class="muted" id="configUpdated"></span></p>
-    <p class="hint">「清除提醒记录」会清掉「今日已提醒过」和「已发过抢注提醒」两个标记，这样到期提醒和抢注提醒都能再发一次；不影响监控域名与其他设置。</p>
     <form id="monitorForm">
       <div class="grid">
         <div><label for="monitorDomains">监控域名</label><textarea id="monitorDomains" rows="1" placeholder="example.com, example.org" title="支持逗号、空格或换行分隔，可拖动右下角调整高度"></textarea></div>
@@ -89,11 +179,12 @@
       </div>
       <label class="check"><input id="monitorDailyRemind" type="checkbox" checked> 提醒窗口内每天提醒一次</label>
       <label class="check"><input id="monitorBackorderNotify" type="checkbox" checked> 域名过期后发送抢注提醒</label>
-      <label class="check"><input id="monitorRunOnStartup" type="checkbox"> 容器启动时检查一次<em class="muted">（需重启后生效）</em></label>
-      <button class="button accent" type="submit">保存监控设置</button>
-      <button class="button secondary" type="button" id="monitorReset">恢复为 .env 配置</button>
-      <button class="button secondary" type="button" id="monitorClearRemind">清除提醒记录</button>
-    </form>
+      <label class="check"><input id="monitorRunOnStartup" type="checkbox"> 容器启动时检查一次<span class="muted">（需重启后生效）</span></label>
+      <div class="actions">
+        <button class="button" type="submit">保存监控设置</button>
+        <button class="button secondary" type="button" id="monitorReset">恢复为 .env 配置</button>
+        <button class="button secondary" type="button" id="monitorClearRemind">清除提醒记录</button>
+      </div></form>
   </section>
 
   <section class="card">
@@ -106,10 +197,11 @@
   "co.uk": ["https://rdap.nominet.uk/"]
 }'></textarea></div>
       <p class="hint" id="rdapStatus">读取中…</p>
-      <button class="button accent" type="submit">保存 RDAP 映射</button>
-      <button class="button secondary" type="button" id="rdapReload">从文件重新载入</button>
-      <button class="button secondary" type="button" id="rdapReset">清空面板配置</button>
-    </form>
+      <div class="actions">
+        <button class="button" type="submit">保存 RDAP 映射</button>
+        <button class="button secondary" type="button" id="rdapReload">从文件重新载入</button>
+        <button class="button secondary" type="button" id="rdapReset">清空面板配置</button>
+      </div></form>
   </section>
 
   <section class="card">
@@ -122,10 +214,11 @@
         <div><label for="telegramApiBase">API 地址</label><input id="telegramApiBase" type="text" placeholder="https://api.telegram.org" pattern="https?://[^\s]+"></div>
       </div>
       <label class="check"><input id="telegramEnabled" type="checkbox" checked> 启用 Telegram 通知</label>
-      <button class="button accent" type="submit">保存 Telegram 配置</button>
-    </form>
+      <div class="actions">
+        <button class="button" type="submit">保存 Telegram 配置</button>
+      </div></form>
   </section>
-  <footer><span>Domain Watch · Private Herbarium</span><span>Encrypted local settings</span></footer>
+  <footer><span>Domain Watch</span><span>Encrypted local settings</span></footer>
 </main>
 <script>
 "use strict";

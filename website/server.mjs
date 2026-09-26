@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { readFile, mkdir } from "node:fs/promises";
+import { readFile, mkdir, stat as statFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { createDomainWatch } from "./domain-watch.mjs";
@@ -167,6 +167,8 @@ function normalizeTelegramApiBase(value) {
 function redirect(res, location) {
   res.statusCode = 302;
   res.setHeader("Location", location);
+  // 不加这行，浏览器可能启发式缓存 302：登录后访问受保护页面仍被弹回登录页
+  res.setHeader("Cache-Control", "no-store");
   res.end();
 }
 
@@ -195,7 +197,11 @@ function sameOrigin(req) {
   }
 }
 
-async function readJsonBody(req, maxBytes = 64 * 1024) {
+// 上限与 README 错误码表一致（payload_too_large = 超过 1 MB）；
+// 域���备注与 RDAP 映射都走这里，给足 1 MB 以免大配置被误拒
+const MAX_JSON_BODY_BYTES = 1024 * 1024;
+
+async function readJsonBody(req, maxBytes = MAX_JSON_BODY_BYTES) {
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
@@ -273,32 +279,54 @@ async function main() {
     };
   }
 
+  /**
+   * 读取页面文件。内容按 mtime 缓存：文件没变就不重复读盘，变了（挂载自定义页面
+   * 后就地编辑）下一次请求就会拿到新内容，不必重启容器。
+   */
   async function readPage(cache, file) {
-    if (cache.value === null) {
+    let stat = null;
+    try {
+      stat = await statFile(file);
+    } catch (error) {
+      throw fail("page_unavailable", `无法读取页面文件 ${file}: ${error.message}`, error);
+    }
+    if (cache.value === null || cache.mtimeMs !== stat.mtimeMs || cache.size !== stat.size) {
       try {
         cache.value = await readFile(file, "utf8");
       } catch (error) {
         throw fail("page_unavailable", `无法读取页面文件 ${file}: ${error.message}`, error);
       }
+      cache.mtimeMs = stat.mtimeMs;
+      cache.size = stat.size;
     }
     return cache.value;
   }
 
-  async function getPublicHtml() {
-    return readPage(publicHtml, publicFile);
+  /**
+   * 发送页面。带 ETag 与 Cache-Control: no-cache，浏览器每次都会回源校验：
+   * 内容没变返回 304（省流量），变了立刻拿到新版本——避免「改了样式却没变化」。
+   */
+  function sendPage(req, res, html, mtimeMs, size) {
+    const etag = `W/"${size.toString(16)}-${Math.floor(mtimeMs).toString(16)}"`;
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("ETag", etag);
+    res.setHeader("Last-Modified", new Date(mtimeMs).toUTCString());
+    if (req.headers["if-none-match"] === etag) {
+      res.statusCode = 304;
+      res.end();
+      return;
+    }
+    res.statusCode = 200;
+    res.end(html);
   }
 
-  async function getMonitorHtml() {
-    return readPage(monitorHtml, monitorFile);
+  /** 读取页面并带上缓存元信息，供 sendPage 使用 */
+  async function servePage(req, res, cache, file) {
+    const html = await readPage(cache, file);
+    sendPage(req, res, html, cache.mtimeMs, cache.size);
   }
 
-  async function getLoginHtml() {
-    return readPage(loginHtml, loginFile);
-  }
-
-  async function getSettingsHtml() {
-    return readPage(settingsHtml, settingsFile);
-  }
 
   function sessionFor(req) {
     const cookies = parseCookies(req.headers.cookie);
@@ -365,9 +393,7 @@ async function main() {
         redirect(res, "/monitor");
         return;
       }
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.end(await getLoginHtml());
+      await servePage(req, res, loginHtml, loginFile);
       return;
     }
 
@@ -437,9 +463,11 @@ async function main() {
 
     if (req.method === "GET" && url.pathname === "/settings") {
       if (!requirePageAuth(req, res)) return;
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.end(await getSettingsHtml());
+      try {
+        await servePage(req, res, settingsHtml, settingsFile);
+      } catch (error) {
+        sendJson(res, statusForError(error), errorBody(error));
+      }
       return;
     }
 
@@ -716,11 +744,9 @@ async function main() {
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       if (!publicQuery && !requirePageAuth(req, res)) return;
       try {
-        res.statusCode = 200;
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        res.end(await getPublicHtml());
+        await servePage(req, res, publicHtml, publicFile);
       } catch (error) {
-        sendJson(res, 500, errorBody(error));
+        sendJson(res, statusForError(error), errorBody(error));
       }
       return;
     }
@@ -728,11 +754,9 @@ async function main() {
     if (req.method === "GET" && (url.pathname === "/monitor" || url.pathname === "/monitor.html")) {
       if (!requirePageAuth(req, res)) return;
       try {
-        res.statusCode = 200;
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        res.end(await getMonitorHtml());
+        await servePage(req, res, monitorHtml, monitorFile);
       } catch (error) {
-        sendJson(res, 500, errorBody(error));
+        sendJson(res, statusForError(error), errorBody(error));
       }
       return;
     }

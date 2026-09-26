@@ -1,6 +1,6 @@
 {
   "name": "domain-watch",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "private": true,
   "description": "域名监控独立网站：RDAP/WHOIS 查询、到期提醒、过期抢注提醒与 Telegram 通知。",
   "scripts": {
