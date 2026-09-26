@@ -2,6 +2,12 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+// Telegram 限流（429）重试：最多 3 次尝试，退避 1s → 2s，单次等待夹在 0.2–8s。
+// 3 次 × 8s 的上限意味着单条通知最多多花 16s，不会把上百个域名的检查拖垮。
+const TELEGRAM_MAX_ATTEMPTS = 3;
+const TELEGRAM_RETRY_BASE_MS = 1000;
+const TELEGRAM_RETRY_MIN_WAIT_MS = 200;
+const TELEGRAM_RETRY_MAX_WAIT_MS = 8000;
 const DEFAULT_CHECK_TIME = "09:00";
 const CHECK_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -32,6 +38,26 @@ function messageOf(error) {
 }
 
 /** 提取 fetch 失败原因：cause 可能是 AggregateError，内层 errors 才带 errno code */
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Telegram 限流后该等多久。优先用 Telegram 自己给的值：响应头 Retry-After，
+ * 或响应体里的 parameters.retry_after（秒）。都没有就按 1s → 2s 退避。
+ * 上下限都夹住，避免 Telegram 报一个很大的 retry_after 把整轮检查拖死。
+ */
+function retryAfterMs(response, body) {
+  const header = Number(response?.headers?.get?.("retry-after"));
+  const fromBody = Number(body?.parameters?.retry_after);
+  let wait = Number.isFinite(header) && header > 0
+    ? header * 1000
+    : Number.isFinite(fromBody) && fromBody > 0
+      ? fromBody * 1000
+      : TELEGRAM_RETRY_BASE_MS;
+  return Math.min(Math.max(wait, TELEGRAM_RETRY_MIN_WAIT_MS), TELEGRAM_RETRY_MAX_WAIT_MS);
+}
+
 function describeCause(error) {
   const cause = error?.cause;
   if (!cause) return "";
@@ -89,21 +115,48 @@ export class TelegramNotifier {
       throw error;
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15_000);
     const text = `<b>${escapeHtml(title)}</b>\n\n${escapeHtml(truncate(message))}`;
     const endpoint = `${this.apiBase}/bot${this.token}/sendMessage`;
+    const payload = JSON.stringify({
+      chat_id: this.chatId,
+      text,
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    });
 
+    // 429 是「现在太快了」，不是「这条消息发不出去」。Telegram 会明确告知该等
+    // 多久（响应头 Retry-After，或响应体里的 parameters.retry_after），照它说的
+    // 等就能发出去。此前一次 429 就直接判失败，整轮检查的提醒全部静默丢弃。
+    for (let attempt = 1; ; attempt++) {
+      const result = await this.sendOnce(endpoint, payload);
+      if (result.ok) return true;
+      if (result.status === 429 && attempt < TELEGRAM_MAX_ATTEMPTS) {
+        await sleep(result.waitMs);
+        continue;
+      }
+      const error = new Error(
+        result.status === 429
+          ? `Telegram 限流，已重试 ${attempt} 次仍未发送：${result.description}`
+          : `Telegram API 发送失败 (${result.status}): ${result.description}`,
+      );
+      error.code = "telegram_error";
+      throw error;
+    }
+  }
+
+  /**
+   * 单次发送尝试。
+   * 成功返回 { ok: true }；被限流或 API 报错返回 { ok:false, status, description, waitMs }；
+   * 网络层失败与超时照旧抛出，由 send() 归类。
+   */
+  async sendOnce(endpoint, payload) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
     try {
       const response = await this.fetchImpl(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: this.chatId,
-          text,
-          parse_mode: "HTML",
-          disable_web_page_preview: true,
-        }),
+        body: payload,
         signal: controller.signal,
       });
       const raw = await response.text();
@@ -111,16 +164,15 @@ export class TelegramNotifier {
       try {
         body = JSON.parse(raw);
       } catch {
-        // Keep the HTTP status in the error below.
+        // Keep the HTTP status in the result below.
       }
-
-      if (!response.ok || !body?.ok) {
-        const description = body?.description || raw || response.statusText;
-        const error = new Error(`Telegram API 发送失败 (${response.status}): ${description}`);
-        error.code = "telegram_error";
-        throw error;
-      }
-      return true;
+      if (response.ok && body?.ok) return { ok: true };
+      return {
+        ok: false,
+        status: response.status,
+        description: body?.description || raw || response.statusText,
+        waitMs: retryAfterMs(response, body),
+      };
     } catch (error) {
       if (error?.name === "AbortError") {
         const timeout = new Error("Telegram API 请求超时");
