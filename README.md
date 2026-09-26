@@ -13,6 +13,7 @@
 - 单用户账号：首次启动生成随机密码并打印到日志，scrypt 哈希存储，HttpOnly 会话 Cookie
 - 默认全站私有：除登录页和健康检查外，所有页面与接口都需登录；需要公开查询页时可显式开启
 - 面板热修改：监控域名、提醒天数、检查时间等在设置页保存后立即生效，无需重启
+- RDAP 映射可自定义：指定某些域名后缀去哪个 RDAP 服务器查，支持设置页面与外部 JSON 文件两层配置
 - 提醒去重：状态持久化到 `reminders.json`，重启不重复发送
 - 免构建部署：GitHub Actions 按版本标签发布多架构镜像，用户直接 `docker pull`
 
@@ -116,6 +117,8 @@ npm run website:start      # 读取根目录 .env 并启动
 
 监控面板顶部可以直接添加域名，列表每行有「移除」按钮，增删即时生效并有右上角结果弹窗；也可以在设置页的「监控设置」里一次性编辑整个列表。
 
+设置页包含三块：监控设置、查询设置（RDAP 映射）、Telegram 通知，外加账号安全。所有保存操作都有右上角结果弹窗，成功显示绿框、失败显示红框并带具体原因。
+
 ## 环境变量
 
 完整列表见 [`.env.example`](.env.example)。
@@ -194,6 +197,71 @@ npm run website:start      # 读取根目录 .env 并启动
 
 Token 和 Chat ID 保存后即加密，接口只返回掩码（如 `****9999`）。修改请直接在设置页操作——`.env` 里的值不会覆盖已保存的配置。
 
+## 查询设置（RDAP 映射）
+
+默认情况下，后缀 → RDAP 服务器的对应关系来自 IANA 引导文件（`dns.json`，72 小时刷新一次）。有些后缀没被收录，或某个后缀的 RDAP 地址不可用，可以在设置页的「查询设置」里自行指定。
+
+映射按**后缀从长到短**匹配，`co.uk` 会优先于 `uk`；把某个后缀设为**空数组**表示禁用它的 RDAP、强制回退 WHOIS 查询。
+
+### 方式一：设置页面（热更新，保存即生效）
+
+在 `/settings` →「查询设置（RDAP 映射）」里填写 JSON：
+
+```json
+{
+  "cn": ["https://rdap.example.cn/rdap/"],
+  "jp": [],
+  "co.uk": ["https://rdap.nominet.uk/"]
+}
+```
+
+### 方式二：外部 JSON 文件（适合挂载进容器）
+
+设置环境变量 `RDAP_OVERRIDES_FILE` 指向一个 JSON 文件，并用 compose 挂载进来：
+
+```yaml
+services:
+  domain-watch:
+    image: ghcr.io/cnprobe/domain-watch:latest
+    environment:
+      RDAP_OVERRIDES_FILE: /config/rdap-overrides.json
+    volumes:
+      - ./rdap-overrides.json:/config/rdap-overrides.json:ro
+      - domain-watch-data:/app/data
+```
+
+文件内容（`tlds` 可省略，直接写映射也可以）：
+
+```json
+{
+  "tlds": {
+    "cn": ["https://rdap.example.cn/rdap/"],
+    "jp": []
+  }
+}
+```
+
+应用对文件只读，**文件内容变化后最多 30 秒自动生效**，无需重启容器；JSON 格式或内容有误时会沿用上一份可用配置，并在日志和设置页提示错误。
+
+### 两层优先级
+
+| 层 | 来源 | 说明 |
+| --- | --- | --- |
+| 文件层 | `RDAP_OVERRIDES_FILE` | 适合做「运维强制配置」，同名后缀**优先于面板** |
+| 面板层 | 设置页面 | 保存在数据卷 `settings.json`，重启后仍生效 |
+
+设置页会同时显示两层的条数、生效条数与文件路径。启动日志也会打印加载结果。
+
+### 相关接口
+
+| 方法与路径 | 说明 |
+| --- | --- |
+| `GET /api/settings/rdap` | 读取面板层、文件层、合并结果与文件状态 |
+| `PUT /api/settings/rdap` | 保存面板层映射（`{"tlds":{...}}`），立即生效；`{"reset":true}` 清空面板层 |
+| `POST /api/settings/rdap` | 立即从外部文件重新载入（不等 30 秒） |
+
+错误码 `invalid_rdap_overrides` 表示后缀或地址格式不合法（例如 `cn!@#`、`ftp://...`），错误信息里会逐条列出。
+
 ## 提醒逻辑
 
 程序每 30 秒比对一次当前时间，到 `CHECK_TIME` 就执行检查：
@@ -240,6 +308,9 @@ docker run --rm \
 | `POST /api/auth/change-credentials` | 登录 | 修改用户名和密码，**需当前密码**（改的是登录凭据本身），成功后当前会话失效 |
 | `GET /api/settings` | 登录 | 读取设置（不回显 Token），含 `monitorConfig`（面板可编辑的监控参数）和 `monitor`（当前生效值） |
 | `PUT /api/settings/monitor` | 登录 | 保存监控参数，**保存后立即生效**；传 `{"reset":true}` 恢复为 `.env` 中的值 |
+| `GET /api/settings/rdap` | 登录 | 读取 RDAP 映射配置（面板层 / 文件层 / 合并结果） |
+| `PUT /api/settings/rdap` | 登录 | 保存 RDAP 映射，立即生效；`{"reset":true}` 清空面板层 |
+| `POST /api/settings/rdap` | 登录 | 立即从外部文件重新载入 |
 | `PUT /api/settings/telegram` | 登录 | 保存 Telegram 配置 |
 | `GET /api/monitor` | 登录 | 实时查询全部监控域名并返回汇总，不发通知 |
 | `PUT /api/settings/monitor/domains` | 登录 | 增删监控域名：`{"add":"a.com,b.com"}` / `{"remove":"a.com"}`，可同时传；自动去重并清理被移除域名的提醒记录 |
@@ -281,6 +352,8 @@ docker run --rm \
 | `invalid_domains` | 400 | 监控域名内容为空、格式错误或超过 4000 字符 |
 | `no_domain_change` | 400 | 要添加的域名已存在，或要移除的域名不在列表中 |
 | `invalid_check_time` | 400 | 检查时间不是 `HH:mm` 格式 |
+| `invalid_rdap_overrides` | 400 | RDAP 映射的后缀或地址格式不合法 |
+| `rdap_file_not_configured` | 400 | 未设置 `RDAP_OVERRIDES_FILE`，无法从文件载入 |
 | `invalid_telegram_api_base` | 400 | Telegram API 地址格式错误（缺协议、含空格/账号密码/查询参数、主机名不完整、粘贴错位） |
 | `invalid_remind_days` | 400 | 提前提醒天数不是数字 |
 | `rate_limited` | 429 | 上游 WHOIS 服务限流 |

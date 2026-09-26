@@ -196,8 +196,13 @@ async function main() {
   }
 
   const domainWatch = createDomainWatch({ dataDir });
+  // 可选：挂载外部 JSON 覆盖「后缀 → RDAP 地址」映射（只读，按 mtime 自动重载）
+  domainWatch.setOverridesFile(process.env.RDAP_OVERRIDES_FILE || "");
+  await domainWatch.loadOverridesFile(true);
   const telegramConfig = await settingsStore.getTelegramConfig();
   const notifier = new TelegramNotifier(telegramConfig);
+  const savedRdap = await settingsStore.getRdapSettings();
+  if (Object.keys(savedRdap.tlds).length > 0) domainWatch.setRdapOverrides(savedRdap.tlds);
   // 监控参数优先使用设置面板保存的值，没有保存过才用 .env
   const monitorConfig = await settingsStore.getMonitorSettings();
   const monitor = createMonitor({ config: monitorConfig, domainWatch, notifier, dataDir });
@@ -210,6 +215,27 @@ async function main() {
 
   if (legacyAdminToken) {
     console.warn("[domain-watch] ADMIN_TOKEN is deprecated; use the single-user login session instead");
+  }
+
+  /** RDAP 映射接口的统一返回结构：面板层 + 文件层 + 合并结果 */
+  function rdapPayload() {
+    const current = domainWatch.getRdapOverrides();
+    const fileCount = Object.keys(current.file).length;
+    return {
+      rdap: {
+        panel: current.panel,
+        file: current.file,
+        effective: current.effective,
+        filePath: current.filePath,
+        fileError: current.fileError,
+        counts: {
+          panel: Object.keys(current.panel).length,
+          file: fileCount,
+          effective: Object.keys(current.effective).length,
+        },
+        precedence: "同名后缀以文件层优先",
+      },
+    };
   }
 
   async function readPage(cache, file) {
@@ -512,6 +538,57 @@ async function main() {
           removed,
           message: `${parts.join("，")}，当前共 ${list.length} 个域名`,
         });
+      } catch (error) {
+        sendJson(res, 400, errorBody(error));
+      }
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/settings/rdap") {
+      const auth = requireApiAuth(req, res);
+      if (!auth) return;
+      sendJson(res, 200, { ok: true, ...rdapPayload() });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/settings/rdap") {
+      const auth = requireApiAuth(req, res);
+      if (!auth || !requireSameOriginForSession(req, res, auth)) return;
+      await domainWatch.loadOverridesFile(true);
+      const current = domainWatch.getRdapOverrides();
+      if (!current.filePath) {
+        sendJson(res, 400, errorBody({ code: "rdap_file_not_configured", message: "未配置 RDAP_OVERRIDES_FILE，没有可载入的外部文件" }));
+        return;
+      }
+      sendJson(res, 200, {
+        ok: true,
+        ...rdapPayload(),
+        message: `已从文件重新载入，共 ${Object.keys(current.file).length} 个后缀`,
+      });
+      return;
+    }
+
+    if (req.method === "PUT" && url.pathname === "/api/settings/rdap") {
+      const auth = requireApiAuth(req, res);
+      if (!auth || !requireSameOriginForSession(req, res, auth)) return;
+      try {
+        const body = await readJsonBody(req);
+
+        if (body.reset === true) {
+          await settingsStore.resetRdapSettings();
+          domainWatch.clearRdapOverrides();
+          console.log("[domain-watch] 已清空设置面板中的 RDAP 映射（文件层不受影响）");
+          sendJson(res, 200, { ok: true, ...rdapPayload(), message: "已清空设置面板中的 RDAP 映射" });
+          return;
+        }
+
+        const result = domainWatch.normalizeOverrideMap(body.tlds);
+        if (result.errors.length > 0) {
+          throw fail("invalid_rdap_overrides", result.errors.join("；"));
+        }
+        await settingsStore.setRdapSettings(result.tlds);
+        domainWatch.setRdapOverrides(result.tlds);
+        sendJson(res, 200, { ok: true, ...rdapPayload(), message: `RDAP 映射已保存并立即生效，共 ${Object.keys(result.tlds).length} 个后缀` });
       } catch (error) {
         sendJson(res, 400, errorBody(error));
       }

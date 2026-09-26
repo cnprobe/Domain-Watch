@@ -1,9 +1,15 @@
 import {
+  clearRdapOverrides,
   formatDate,
+  getRdapOverrides,
   isToday,
+  loadOverridesFile,
+  normalizeOverrideMap,
   normalizeRemindDays,
   parseDomains,
   queryDomain,
+  setOverridesFile,
+  setRdapOverrides,
   setStorageDir,
 } from "../src/domain-core.ts";
 import { fail } from "./auth.mjs";
@@ -20,5 +26,12 @@ export function createDomainWatch({ dataDir }) {
     normalizeRemindDays,
     formatDate,
     isToday,
+    // RDAP 映射覆盖（设置面板 + 外部 JSON 文件）
+    setOverridesFile,
+    setRdapOverrides,
+    clearRdapOverrides,
+    getRdapOverrides,
+    loadOverridesFile,
+    normalizeOverrideMap,
   };
 }

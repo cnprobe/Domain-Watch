@@ -236,6 +236,25 @@ export class SettingsStore {
     };
   }
 
+  /** 设置面板保存的 RDAP 映射（外部文件层由 domain-core 负责） */
+  async getRdapSettings() {
+    const stored = this.data.rdap;
+    if (!stored) return { tlds: {}, updatedAt: null };
+    return { tlds: stored.tlds && typeof stored.tlds === "object" ? stored.tlds : {}, updatedAt: stored.updatedAt || null };
+  }
+
+  async setRdapSettings(tlds) {
+    this.data.rdap = { tlds, updatedAt: new Date().toISOString() };
+    await this.save();
+    return this.getRdapSettings();
+  }
+
+  async resetRdapSettings() {
+    delete this.data.rdap;
+    await this.save();
+    return this.getRdapSettings();
+  }
+
   async setMonitorSettings(next) {
     const remindDays = Number(next.remindDays ?? 30);
     this.data.monitor = {

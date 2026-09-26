@@ -225,6 +225,181 @@ function normalizeRemindDays(value: unknown): number {
   return Math.max(0, Math.min(365, Math.floor(n)));
 }
 
+// ---------- RDAP 映射覆盖（设置面板 / 外部 JSON 文件） ----------
+//
+// 用途：IANA 引导文件（dns.json）没收录某些后缀，或某后缀的 RDAP 地址不可用时，
+// 允许自行指定「后缀 → RDAP 服务器地址」的映射。空数组表示该后缀禁用 RDAP（回退 WHOIS）。
+// 两层配置：
+//   1) 外部 JSON 文件（可选，只读）：由 setOverridesFile() 指定，按 mtime 变化自动重载
+//   2) 设置面板：通过 setRdapOverrides() 热更新
+// 同名后缀以文件层优先，便于用挂载文件做「运维强制配置」。
+
+const OVERRIDE_KEY_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
+const OVERRIDES_POLL_MS = 30_000; // 外部文件最短重载间隔
+
+let overridesFilePath = "";
+let overridesFileMtimeMs = 0;
+let overridesFileCheckedAt = 0;
+let fileOverrides: Record<string, string[]> = {};
+let fileOverridesError = "";
+let panelOverrides: Record<string, string[]> = {};
+
+/** 规范化后缀键：去首尾点、转小写；不合法返回空串 */
+function normalizeOverrideKey(value: unknown): string {
+  const raw = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/^\.+/, "")
+    .replace(/\.+$/, "");
+  if (!raw || raw.length > 253) return "";
+  if (!OVERRIDE_KEY_PATTERN.test(raw)) return "";
+  for (const label of raw.split(".")) {
+    if (label.length > 63) return "";
+  }
+  return raw;
+}
+
+/** 规范化地址列表：只保留 http/https，统一补末尾斜杠；空数组表示禁用 RDAP */
+function normalizeOverrideUrls(value: unknown): string[] {
+  const list =
+    Array.isArray(value) ? value : value === undefined || value === null || value === "" ? [] : [value];
+  const out: string[] = [];
+  for (const item of list) {
+    const text = String(item ?? "").trim();
+    if (!text || !/^https?:\/\//i.test(text)) continue;
+    const normalized = text.endsWith("/") ? text : text + "/";
+    if (out.indexOf(normalized) === -1) out.push(normalized);
+  }
+  return out;
+}
+
+/** 校验并规范化整张映射表，返回可用的表和逐条错误说明 */
+function normalizeOverrideMap(input: unknown): { tlds: Record<string, string[]>; errors: string[] } {
+  const errors: string[] = [];
+  const out: Record<string, string[]> = {};
+  if (input === undefined || input === null) return { tlds: out, errors };
+  let source: any = input;
+  if (typeof input === "object" && !Array.isArray(input) && (input as any).tlds !== undefined) {
+    source = (input as any).tlds;
+  }
+  if (typeof source !== "object" || Array.isArray(source)) {
+    return { tlds: out, errors: ['配置必须是一个对象，例如 {"cn": ["https://rdap.example/"]}'] };
+  }
+  for (const key of Object.keys(source)) {
+    const normalizedKey = normalizeOverrideKey(key);
+    if (!normalizedKey) {
+      errors.push('后缀 "' + key + '" 不是合法的域名后缀');
+      continue;
+    }
+    const value = source[key];
+    const urls = normalizeOverrideUrls(value);
+    const given = Array.isArray(value) ? value.length : value === undefined || value === null || value === "" ? 0 : 1;
+    if (given > 0 && urls.length === 0) {
+      errors.push('后缀 "' + normalizedKey + '" 的地址必须以 http:// 或 https:// 开头');
+      continue;
+    }
+    out[normalizedKey] = urls;
+  }
+  return { tlds: out, errors };
+}
+
+/** 指定外部覆盖文件路径（留空表示只使用设置面板配置） */
+function setOverridesFile(file: string): void {
+  overridesFilePath = String(file || "").trim();
+  overridesFileMtimeMs = 0;
+  overridesFileCheckedAt = 0;
+  fileOverrides = {};
+  fileOverridesError = "";
+  console.log("[domain-watch] RDAP 映射覆盖文件：" + (overridesFilePath || "未配置（仅使用设置面板）"));
+}
+
+/** 设置面板热更新：立即生效，无需重启 */
+function setRdapOverrides(input: unknown): { tlds: Record<string, string[]>; errors: string[] } {
+  const result = normalizeOverrideMap(input);
+  if (result.errors.length > 0) return result;
+  panelOverrides = result.tlds;
+  console.log(
+    "[domain-watch] RDAP 映射已更新（设置面板，" + Object.keys(panelOverrides).length + " 个后缀）：" +
+      (Object.keys(panelOverrides).join(", ") || "无")
+  );
+  return result;
+}
+
+function clearRdapOverrides(): void {
+  panelOverrides = {};
+  console.log("[domain-watch] 已清空设置面板中的 RDAP 映射");
+}
+
+/** 两层合并，文件层优先 */
+function effectiveOverrides(): Record<string, string[]> {
+  const merged: Record<string, string[]> = {};
+  for (const key of Object.keys(panelOverrides)) merged[key] = panelOverrides[key];
+  for (const key of Object.keys(fileOverrides)) merged[key] = fileOverrides[key];
+  return merged;
+}
+
+/** 读取外部文件；mtime 未变则跳过；解析失败保留上一份可用配置 */
+async function loadOverridesFile(force = false): Promise<void> {
+  if (!overridesFilePath) return;
+  const now = Date.now();
+  if (!force && now - overridesFileCheckedAt < OVERRIDES_POLL_MS) return;
+  overridesFileCheckedAt = now;
+  try {
+    const stat = await fs.promises.stat(overridesFilePath);
+    if (!force && stat.mtimeMs === overridesFileMtimeMs) return;
+    overridesFileMtimeMs = stat.mtimeMs;
+    const raw = await fs.promises.readFile(overridesFilePath, "utf8");
+    const result = normalizeOverrideMap(JSON.parse(raw));
+    if (result.errors.length > 0) {
+      fileOverridesError = result.errors.join("；");
+      const kept = Object.keys(fileOverrides).length > 0;
+      console.log(
+        "[domain-watch] RDAP 覆盖文件 " + overridesFilePath + " 校验失败，" +
+          (kept ? "沿用上一份可用配置：" : "本次忽略该文件：") + fileOverridesError
+      );
+      return;
+    }
+    fileOverrides = result.tlds;
+    fileOverridesError = "";
+    console.log(
+      "[domain-watch] 已加载 RDAP 覆盖文件 " + overridesFilePath + "（" +
+        Object.keys(fileOverrides).length + " 个后缀：" + (Object.keys(fileOverrides).join(", ") || "无") + "）"
+    );
+  } catch (error) {
+    const err = error as any;
+    if (err && err.code === "ENOENT") {
+      if (Object.keys(fileOverrides).length > 0) console.log("[domain-watch] RDAP 覆盖文件已移除，清空文件层映射");
+      fileOverrides = {};
+      fileOverridesError = "";
+      return;
+    }
+    fileOverridesError = err instanceof SyntaxError ? "JSON 格式错误：" + err.message : String((err && err.message) || err);
+    const kept = Object.keys(fileOverrides).length > 0;
+    console.log(
+      "[domain-watch] 读取 RDAP 覆盖文件失败，" + (kept ? "沿用上一份可用配置：" : "本次忽略该文件：") + fileOverridesError
+    );
+  }
+}
+
+/** 供接口与页面读取当前两层配置 */
+function getRdapOverrides(): {
+  panel: Record<string, string[]>;
+  file: Record<string, string[]>;
+  effective: Record<string, string[]>;
+  filePath: string;
+  fileError: string;
+  checkedAt: number;
+} {
+  return {
+    panel: { ...panelOverrides },
+    file: { ...fileOverrides },
+    effective: effectiveOverrides(),
+    filePath: overridesFilePath,
+    fileError: fileOverridesError,
+    checkedAt: overridesFileCheckedAt,
+  };
+}
+
 // ---------- IANA RDAP 引导文件 ----------
 
 /** 解析 dns.json 为 { tld: [urls] } */
@@ -399,14 +574,25 @@ function buildResult(asciiDomain: string, inputDomain: string, tld: string, rdap
  * 匹配 TLD 引导：返回 { tld, urls, candidates }。
  * candidates 按从长到短排列，引导文件中更具体的后缀优先
  */
-function resolveTld(map: BootstrapMap, ascii: string): { tld: string; urls: string[]; candidates: string[] } {
+function resolveTld(
+  map: BootstrapMap,
+  ascii: string,
+  overrides?: Record<string, string[]>
+): { tld: string; urls: string[]; candidates: string[]; source: string } {
   const candidates = getTldCandidates(ascii);
+  const custom = overrides || effectiveOverrides();
+  // 覆盖层优先：空数组表示该后缀被显式禁用 RDAP
   for (let i = 0; i < candidates.length; i++) {
-    if (map[candidates[i]]) {
-      return { tld: candidates[i], urls: map[candidates[i]], candidates };
+    if (Object.prototype.hasOwnProperty.call(custom, candidates[i])) {
+      return { tld: candidates[i], urls: custom[candidates[i]], candidates, source: "override" };
     }
   }
-  return { tld: "", urls: [], candidates };
+  for (let i = 0; i < candidates.length; i++) {
+    if (map[candidates[i]]) {
+      return { tld: candidates[i], urls: map[candidates[i]], candidates, source: "bootstrap" };
+    }
+  }
+  return { tld: "", urls: [], candidates, source: "none" };
 }
 
 /**
@@ -417,14 +603,16 @@ async function queryDomain(domain: string): Promise<Record<string, unknown>> {
   const input = normalizeDomainInput(domain);
   if (!input) throw makeError("invalid_domain", "缺少 domain 参数");
   const ascii = toAsciiDomain(input);
+  await loadOverridesFile(); // 热更新：外部文件最多每 30 秒检查一次
   const map = await getBootstrapMap();
-  // 按候选后缀从长到短匹配引导文件
+  // 按候选后缀从长到短匹配：覆盖层 → IANA 引导文件
   const resolved = resolveTld(map, ascii);
   const { tld, urls } = resolved;
   if (!urls || urls.length === 0) {
     // 该 TLD 无 RDAP 服务（常见于 ccTLD，如 .cn/.jp/.de）→ 回退 whois 网页查询
     const fallbackTld = resolved.candidates[resolved.candidates.length - 1] || ascii;
-    console.log("[domain-watch] " + ascii + " 的 TLD " + fallbackTld + " 无 RDAP 服务，回退 whois");
+    const why = resolved.source === "override" ? "映射中被显式禁用 RDAP" : "无 RDAP 服务";
+    console.log("[domain-watch] " + ascii + " 的 TLD " + fallbackTld + " " + why + "，回退 whois");
     return queryWhoisFallback(ascii, input, fallbackTld);
   }
   // 按优先级尝试该 TLD 的多个 RDAP 服务器（备用地址兜底）
@@ -771,18 +959,24 @@ export {
   buildResult,
   buildUapiResult,
   buildXxapiResult,
+  clearRdapOverrides,
   errToResponse,
   formatDate,
   getBootstrapMap,
+  getRdapOverrides,
   isToday,
   joinUrl,
+  loadOverridesFile,
   makeError,
   normalizeDomainInput,
+  normalizeOverrideMap,
   normalizeRemindDays,
   parseBootstrap,
   parseDomains,
   queryDomain,
   resolveTld,
   safeQuery,
+  setOverridesFile,
+  setRdapOverrides,
   toAsciiDomain,
 };
