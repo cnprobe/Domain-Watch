@@ -499,8 +499,16 @@ async function main() {
         if (body.reset === true) {
           const restored = await settingsStore.resetMonitorSettings();
           const { previous, current } = monitor.applyConfig({ ...restored, source: "env" });
+          // 恢复 .env 同样会整份替换域名列表，走同一套残留清理
+          const pruned = await monitor.pruneOrphans(current.domains);
           console.log(`[domain-watch] 监控配置已恢复为 .env：${previous.domains || "未配置"} -> ${current.domains || "未配置"}`);
-          sendJson(res, 200, { ok: true, monitorConfig: restored, monitor: monitor.status(), message: "已恢复为 .env 中的配置" });
+          sendJson(res, 200, {
+            ok: true,
+            monitorConfig: restored,
+            monitor: monitor.status(),
+            pruned,
+            message: "已恢复为 .env 中的配置",
+          });
           return;
         }
 
@@ -534,11 +542,20 @@ async function main() {
           runOnStartup: (body.runOnStartup === undefined ? previousPanel.runOnStartup : body.runOnStartup) === true,
         });
         const { current } = monitor.applyConfig({ ...saved, source: "panel" });
+        // 域名列表被整体改写时，顺带清掉已移除域名的提醒记录与备注——否则
+        // reminders.json 会无界增长，旧价格/旧商家也会跟着留在设置里
+        const pruned = await monitor.pruneOrphans(saved.domains);
         console.log(
           `[domain-watch] 监控配置已更新（设置面板）: 域名 ${saved.domains || "未配置"}，` +
             `检查时间 ${current.checkTime}，提醒天数 ${current.remindDays}`
         );
-        sendJson(res, 200, { ok: true, monitorConfig: saved, monitor: monitor.status(), message: "监控配置已保存并立即生效" });
+        sendJson(res, 200, {
+          ok: true,
+          monitorConfig: saved,
+          monitor: monitor.status(),
+          pruned,
+          message: "监控配置已保存并立即生效",
+        });
       } catch (error) {
         sendError(res, error);
       }

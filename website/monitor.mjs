@@ -384,9 +384,11 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, settings
    */
   async function clearReminderFlags(list) {
     const records = await loadState();
+    // 不传列表时清全部：包括已经不在监控列表里的域名。它们若仍带着标记，下次
+    // 保存配置时会被 pruneOrphans 跳过（它只清两个标记都空的），残留就永远清不掉
     const targets =
       list === undefined
-        ? domains.slice()
+        ? Object.keys(records)
         : (Array.isArray(list) ? list : [list]).map((item) => String(item || "").trim().toLowerCase()).filter(Boolean);
     const cleared = [];
     for (const domain of targets) {
@@ -423,6 +425,47 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, settings
       }
     }
     return removed;
+  }
+
+  /**
+   * 域名列表被整体改写（设置页文本框 / 恢复为 .env）后，清理已不在列表里的残留。
+   *
+   * 监控页的「移除」按钮走 forgetDomains，那条路径一直是干净的；这里补上另一条。
+   * 之前从设置页删掉的域名，其提醒记录会永远留在 reminders.json 里（无界增长），
+   * 价格/商家备注也会留在 settings.json 里——将来重新加回这个域名，界面会带出
+   * 早已过期的旧价格和旧商家。
+   *
+   * keep 必须取**新**列表。旧列表在 .env 兜底场景下与生效值并不相同：站点启动时
+   * 若设置面板为空，域名来自 .env，此时把旧面板列表传进来会把仍在监控的域名
+   * 误判成残留。
+   *
+   * 只清理「两个标记都为空」的记录：有未发出去的提醒时保留，避免用户刚被提醒过
+   * 就把域名删掉、再加回来时丢掉提醒状态。
+   */
+  async function pruneOrphans(nextDomains) {
+    if (!settingsStore) return [];
+    const keep = new Set(domainWatch.parseDomains(String(nextDomains || "")));
+    const records = await loadState();
+    const meta = await settingsStore.getDomainMeta();
+    // 候选来自两个地方：reminders.json 的记录与 settings.json 的备注。只看前者会漏掉
+    // 「加过域名、写了备注、但从没触发过提醒」的情况——那种域名在 reminders.json 里
+    // 根本没有条目，备注就会一直留着，重新加回时带出旧价格。
+    const candidates = new Set([...Object.keys(records), ...Object.keys(meta)]);
+    const orphans = [...candidates].filter((domain) => {
+      if (keep.has(domain)) return false;
+      const record = records[domain];
+      return !record?.remindedAt && !record?.backorderAt;
+    });
+    if (orphans.length === 0) return [];
+    for (const domain of orphans) delete records[domain];
+    await saveState();
+    try {
+      await settingsStore.setDomainMeta({ remove: orphans });
+    } catch (error) {
+      logger.warn(`[domain-watch] 清理已移除域名的备注失败: ${messageOf(error)}`);
+    }
+    logger.info(`[domain-watch] 已清理 ${orphans.length} 个不在监控列表中的域名残留：${orphans.join("、")}`);
+    return orphans;
   }
 
   function isDue(now) {
@@ -572,5 +615,5 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, settings
     };
   }
 
-  return { check, snapshot, start, stop, status, applyConfig, currentConfig, forgetDomains, clearReminderFlags };
+  return { check, snapshot, start, stop, status, applyConfig, currentConfig, forgetDomains, clearReminderFlags, pruneOrphans };
 }
