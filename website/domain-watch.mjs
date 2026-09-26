@@ -1,7 +1,9 @@
 import {
   clearRdapOverrides,
   formatDate,
+  getBootstrapMap,
   getRdapOverrides,
+  getTldList,
   isToday,
   loadOverridesFile,
   normalizeOverrideMap,
@@ -27,6 +29,8 @@ export function createDomainWatch({ dataDir }) {
     formatDate,
     isToday,
     // RDAP 映射覆盖（设置面板 + 外部 JSON 文件）
+    getBootstrapMap,
+    getTldList,
     setOverridesFile,
     setRdapOverrides,
     clearRdapOverrides,

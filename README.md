@@ -205,15 +205,22 @@ Token 和 Chat ID 保存后即加密，接口只返回掩码（如 `****9999`）
 
 ### 方式一：设置页面（热更新，保存即生效）
 
-在 `/settings` →「查询设置（RDAP 映射）」里填写 JSON：
+在 `/settings` →「查询设置（RDAP 映射）」里逐行填写，一行一个后缀：
 
-```json
-{
-  "cn": ["https://rdap.example.cn/rdap/"],
-  "jp": [],
-  "co.uk": ["https://rdap.nominet.uk/"]
-}
-```
+| 域名后缀 | RDAP 服务器地址 |
+| --- | --- |
+| `cn` | `https://rdap.example.cn/rdap/` |
+| `jp` | 留空 = 禁用该后缀的 RDAP |
+| `co.uk` | `https://rdap.nominet.uk/` |
+
+- **后缀列是可输入的下拉框**：候选来自 IANA 完整 TLD 列表（约 1400 条，缓存 72 小时）并合并 IANA 引导文件与已配置的自定义后缀，可直接下拉选择，也可以手动输入
+- 输入时自动转小写并去掉前导点（`.CN` → `cn`）
+- **选中已配置过的后缀会自动带出它的 RDAP 地址**；选中未配置的后缀会清空地址框，避免把上一个后缀的地址误存过去
+- **地址留空表示禁用该后缀的 RDAP**，该行会标记「已禁用 RDAP」，查询时回退 WHOIS
+- 需要多个备用地址时，在同一格里换行或用逗号分隔（按顺序依次尝试）
+- 后缀支持多级写法（如 `co.uk`），IANA 列表只提供顶级后缀，多级后缀手动输入即可
+
+保存后立即生效；「从文件重新载入」可立即读取外部文件，「清空面板配置」只清面板层。
 
 ### 方式二：外部 JSON 文件（适合挂载进容器）
 
@@ -309,6 +316,7 @@ docker run --rm \
 | `GET /api/settings` | 登录 | 读取设置（不回显 Token），含 `monitorConfig`（面板可编辑的监控参数）和 `monitor`（当前生效值） |
 | `PUT /api/settings/monitor` | 登录 | 保存监控参数，**保存后立即生效**；传 `{"reset":true}` 恢复为 `.env` 中的值 |
 | `GET /api/settings/rdap` | 登录 | 读取 RDAP 映射配置（面板层 / 文件层 / 合并结果） |
+| `GET /api/settings/rdap/tlds` | 登录 | 读取后缀候选列表（设置页下拉框数据源） |
 | `PUT /api/settings/rdap` | 登录 | 保存 RDAP 映射，立即生效；`{"reset":true}` 清空面板层 |
 | `POST /api/settings/rdap` | 登录 | 立即从外部文件重新载入 |
 | `PUT /api/settings/telegram` | 登录 | 保存 Telegram 配置 |

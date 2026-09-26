@@ -29,6 +29,7 @@ const XXAPI_WHOIS_URL = "https://v2.xxapi.cn/api/whois"; // xxapi.cn 免费 WHOI
 const BOOTSTRAP_TTL_MS = 72 * 60 * 60 * 1000; // 引导文件缓存有效期：72 小时
 const BOOTSTRAP_TIMEOUT_MS = 15000; // 引导文件拉取超时
 const RDAP_TIMEOUT_MS = 8000; // 单次 RDAP 查询超时
+const TLD_TIMEOUT_MS = 10000; // 拉取 IANA TLD 列表超时
 const WHOIS_PAGE_TIMEOUT_MS = 12000; // 单次 whois 回退查询超时（UAPI / 网页源）
 const WHOIS_PAGE_SOURCES: Array<{ name: string; url: (d: string) => string }> = [
   { name: "who.is", url: (d) => "https://who.is/whois/" + d },
@@ -223,6 +224,85 @@ function normalizeRemindDays(value: unknown): number {
   const n = Number(value);
   if (isNaN(n)) return DEFAULT_REMIND_DAYS;
   return Math.max(0, Math.min(365, Math.floor(n)));
+}
+
+// ---------- IANA 完整 TLD 列表（供设置页下拉候选） ----------
+//
+// 引导文件 dns.json 只收录「有 RDAP 服务」的后缀，因此 .cn/.jp/.de 这类
+// 最需要手动配置的后缀恰好不在其中。这里额外拉取 IANA 的完整 TLD 列表，
+// 与引导文件互为补充；拉取失败时回退到引导文件里的键。
+
+const TLD_LIST_URL = "https://data.iana.org/TLD/tlds-alpha-by-domain.txt";
+const TLD_LIST_FILE = "tlds.txt";
+
+let tldListCache: string[] | null = null;
+let tldListFetchedAt = 0;
+let tldListLoading: Promise<string[]> | null = null;
+
+function parseTldList(text: string): string[] {
+  const out: string[] = [];
+  const seen: Record<string, number> = {};
+  for (const raw of String(text || "").split(/\r?\n/)) {
+    const key = normalizeOverrideKey(raw);
+    if (!key || seen[key]) continue;
+    seen[key] = 1;
+    out.push(key);
+  }
+  return out.sort();
+}
+
+async function loadTldList(): Promise<string[]> {
+  const file = path.join(getStorageDir(), TLD_LIST_FILE);
+  const fresh = tldListCache && Date.now() - tldListFetchedAt < BOOTSTRAP_TTL_MS;
+  if (fresh && tldListCache) return tldListCache;
+  if (tldListLoading) return tldListLoading;
+  tldListLoading = (async () => {
+    // 1) 磁盘缓存
+    try {
+      const stat = await fs.promises.stat(file);
+      if (Date.now() - stat.mtimeMs < BOOTSTRAP_TTL_MS) {
+        const list = parseTldList(await fs.promises.readFile(file, "utf8"));
+        if (list.length > 0) {
+          tldListCache = list;
+          tldListFetchedAt = Date.now();
+          return list;
+        }
+      }
+    } catch {
+      // 无缓存则继续远程拉取
+    }
+    // 2) 远程拉取，失败时回退到引导文件里的键
+    try {
+      const text = await fetchText(TLD_LIST_URL, TLD_TIMEOUT_MS);
+      const list = parseTldList(text);
+      if (list.length > 0) {
+        tldListCache = list;
+        tldListFetchedAt = Date.now();
+        try {
+          await fs.promises.writeFile(file, text, "utf8");
+        } catch {
+          // 缓存写失败不影响使用
+        }
+        return list;
+      }
+    } catch (error) {
+      console.log("[domain-watch] 拉取 IANA TLD 列表失败，回退到引导文件：" + String((error as AppError).message || error));
+    }
+    tldListCache = Object.keys(await getBootstrapMap()).sort();
+    tldListFetchedAt = Date.now();
+    return tldListCache;
+  })().finally(function () {
+    tldListLoading = null;
+  });
+  return tldListLoading;
+}
+
+/** 供设置页下拉框使用：IANA 完整列表 + 引导文件 + 自定义后缀 */
+async function getTldList(): Promise<string[]> {
+  const names = new Set<string>(await loadTldList());
+  for (const key of Object.keys(await getBootstrapMap())) names.add(key);
+  for (const key of Object.keys(effectiveOverrides())) names.add(key);
+  return [...names].sort();
 }
 
 // ---------- RDAP 映射覆盖（设置面板 / 外部 JSON 文件） ----------
@@ -964,6 +1044,7 @@ export {
   formatDate,
   getBootstrapMap,
   getRdapOverrides,
+  getTldList,
   isToday,
   joinUrl,
   loadOverridesFile,

@@ -551,6 +551,18 @@ async function main() {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/settings/rdap/tlds") {
+      const auth = requireApiAuth(req, res);
+      if (!auth) return;
+      try {
+        const tlds = await domainWatch.getTldList();
+        sendJson(res, 200, { ok: true, count: tlds.length, tlds });
+      } catch (error) {
+        sendJson(res, 502, errorBody(error));
+      }
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/settings/rdap") {
       const auth = requireApiAuth(req, res);
       if (!auth || !requireSameOriginForSession(req, res, auth)) return;

@@ -22,7 +22,17 @@
   .card { margin:0 0 20px; padding:24px; border:1px solid var(--line); border-radius:var(--radius); background:var(--paper); box-shadow:var(--shadow); transition:border-color .3s ease,box-shadow .3s ease; } .card:hover { border-color:var(--gold-line); box-shadow:var(--shadow-hover); } h2 { margin:0 0 8px; font-size:22px; letter-spacing:.07em; } h2::before { content:"❧ "; color:var(--gold); } .hint { margin:0 0 18px; color:var(--ink-soft); font-size:13px; line-height:1.7; }
   .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; } label { display:block; margin-bottom:6px; color:var(--ink-soft); font-size:13px; letter-spacing:.04em; }
   input[type=text],input[type=password] { width:100%; min-height:44px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius); outline:none; background:var(--paper); color:var(--ink); font:inherit; font-size:15px; transition:border-color .3s ease,box-shadow .3s ease; } input::placeholder { color:var(--ink-soft); } input:focus { border-color:var(--gold); box-shadow:0 0 0 2px rgba(139,105,20,.12); }
-  input[type=number],textarea { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius); outline:none; background:var(--paper); color:var(--ink); font:inherit; font-size:15px; transition:border-color .3s ease,box-shadow .3s ease; } input[type=number] { min-height:44px; } textarea { min-height:44px; max-height:60vh; resize:vertical; line-height:1.45; overflow:auto; } textarea#rdapJson { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:13px; } textarea::placeholder { color:var(--ink-soft); } input[type=number]:focus,textarea:focus { border-color:var(--gold); box-shadow:0 0 0 2px rgba(139,105,20,.12); }
+  input[type=number],textarea { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius); outline:none; background:var(--paper); color:var(--ink); font:inherit; font-size:15px; transition:border-color .3s ease,box-shadow .3s ease; } input[type=number] { min-height:44px; } textarea { min-height:44px; max-height:60vh; resize:vertical; line-height:1.45; overflow:auto; } textarea#rdapJson { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:13px; }
+  .rdap-head,.rdap-row { display:grid; grid-template-columns:minmax(130px,190px) 1fr auto; gap:10px; align-items:center; }
+  .rdap-head { margin:0 0 6px; color:var(--ink-soft); font-size:12px; letter-spacing:.06em; }
+  .rdap-rows { display:flex; flex-direction:column; gap:10px; margin:0 0 14px; }
+  .rdap-row input { width:100%; min-height:42px; }
+  .rdap-row .tld { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  .rdap-row.off .tld { border-color:var(--gold-line); background:var(--paper-deep); }
+  .rdap-row .tag { display:inline-block; margin-left:8px; padding:2px 7px; border:1px solid var(--gold-line); border-radius:7px; color:var(--gold); font-size:11px; }
+  .rdap-row .del { padding:6px 4px; border:0; background:none; color:var(--rose); font:inherit; font-size:13px; cursor:pointer; text-decoration:underline; text-underline-offset:3px; white-space:nowrap; }
+  .rdap-row .del:hover { color:var(--ink); } .rdap-row .del:disabled { color:var(--ink-soft); cursor:default; text-decoration:none; }
+  @media (max-width:640px) { .rdap-head { display:none; } .rdap-row { grid-template-columns:1fr; gap:6px; padding:10px; border:1px solid var(--line); border-radius:var(--radius); } } textarea::placeholder { color:var(--ink-soft); } input[type=number]:focus,textarea:focus { border-color:var(--gold); box-shadow:0 0 0 2px rgba(139,105,20,.12); }
   .muted { color:var(--ink-soft); font-weight:400; font-style:normal; } .check em { margin-left:6px; font-size:12px; }
   .toasts { position:fixed; top:18px; right:18px; z-index:60; display:flex; flex-direction:column; gap:10px; width:min(360px,calc(100vw - 36px)); pointer-events:none; }
   .toast { pointer-events:auto; display:flex; align-items:flex-start; gap:10px; padding:12px 14px; border:1px solid var(--line); border-left:4px solid var(--fern); border-radius:var(--radius); background:var(--paper); box-shadow:var(--shadow-hover); color:var(--ink); font-size:14px; line-height:1.55; animation:toast-in .26s ease both; transition:opacity .2s ease,transform .2s ease; }
@@ -94,11 +104,10 @@
     <h2>查询设置（RDAP 映射）</h2>
     <p class="hint">指定某些域名后缀去哪个 RDAP 服务器查询，<strong>保存后立即生效</strong>。同名后缀以外部文件优先。IANA 引导文件没有收录的后缀（如 .cn/.jp）可在此补充；把某个后缀设为空数组 <code>[]</code> 表示禁用它的 RDAP、强制回退 WHOIS。</p>
     <form id="rdapForm">
-      <div><label for="rdapJson">后缀 → RDAP 地址</label><textarea id="rdapJson" rows="6" spellcheck="false" placeholder='{
-  "cn": ["https://rdap.example.cn/rdap/"],
-  "jp": [],
-  "co.uk": ["https://rdap.nominet.uk/"]
-}'></textarea></div>
+      <div class="rdap-head"><span>域名后缀</span><span>RDAP 服务器地址（可留空表示禁用该后缀的 RDAP）</span><span></span></div>
+      <div class="rdap-rows" id="rdapRows"></div>
+      <datalist id="tldOptions"></datalist>
+      <button class="button secondary" type="button" id="rdapAdd">+ 添加后缀</button>
       <p class="hint" id="rdapStatus">读取中…</p>
       <button class="button accent" type="submit">保存 RDAP 映射</button>
       <button class="button secondary" type="button" id="rdapReload">从文件重新载入</button>
@@ -124,6 +133,7 @@
 <script>
 "use strict";
 const $=(id)=>document.getElementById(id);
+let rdapCurrent={};
 const TOAST_MS=4200;
 function toast(text,kind="ok"){const host=$("toasts");if(!host)return;const bad=kind==="err";const item=document.createElement("div");item.className="toast"+(bad?" err":"");
 const icon=document.createElement("span");icon.className="toast-icon";icon.textContent=bad?"\u2715":"\u2713";
@@ -139,11 +149,34 @@ const ok=(text)=>toast(text,"ok");
 const fail=(action,error)=>toast(action+"失败："+((error&&error.message)||"未知错误"),"err");
 function fill(data){const s=data.settings;$("newUsername").value=s.username;$("telegramChatId").placeholder=s.telegram.chatId?`当前：${s.telegram.chatId}`:"未配置";$("telegramApiBase").value=s.telegram.apiBase||"https://api.telegram.org";$("telegramEnabled").checked=s.telegram.configured;$("summary").innerHTML=`<div class="summary-item"><b>${s.username}</b><span>当前用户</span></div><div class="summary-item"><b>${s.telegram.configured?"已启用":"未配置"}</b><span>Telegram</span></div><div class="summary-item"><b>${data.monitor.domains.length}</b><span>监控域名</span></div><div class="summary-item"><b>${data.monitor.checkTime}</b><span>检查时间</span></div>`;
 const c=data.monitorConfig||{};$("monitorDomains").value=c.domains||"";$("monitorRemindDays").value=c.remindDays??30;$("monitorCheckTime").value=c.checkTime||"09:00";$("monitorDailyRemind").checked=c.dailyRemind!==false;$("monitorBackorderNotify").checked=c.backorderNotify!==false;$("monitorRunOnStartup").checked=c.runOnStartup===true;$("configSource").textContent=c.source==="panel"?"设置面板":".env 文件";$("configUpdated").textContent=c.source==="panel"&&c.updatedAt?`最后保存：${new Date(c.updatedAt).toLocaleString()}`:"";}
-async function load(){const response=await fetch("/api/settings");if(response.status===401){location.href="/login?next=/settings";return;}const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"加载失败");fill(data);await loadRdap();}
-function renderRdap(data){const r=data.rdap||{};const panel=r.panel&&Object.keys(r.panel).length?r.panel:r.effective||{};$("rdapJson").value=Object.keys(panel).length?JSON.stringify(panel,null,2):"";const parts=[`面板 ${r.counts?.panel??0} 条`];if(r.filePath){parts.push(`文件 ${r.counts?.file??0} 条（优先）`);parts.push(r.fileError?`文件异常：${r.fileError}`:`路径 ${r.filePath}`);}else{parts.push("未挂载外部文件");}parts.push(`生效 ${r.counts?.effective??0} 条`);$("rdapStatus").textContent=parts.join("　·　");}
+async function load(){const response=await fetch("/api/settings");if(response.status===401){location.href="/login?next=/settings";return;}const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"加载失败");fill(data);await Promise.all([loadRdap(),loadTldOptions()]);}
+let rdapKnown=[];
+function normalizeTld(raw){return String(raw||"").trim().toLowerCase().replace(/^\.+/,"").replace(/\.+$/,"");}
+function splitUrls(raw){return String(raw||"").split(/[\n,，;；]+/).map((v)=>v.trim()).filter(Boolean);}
+function addRdapRow(tld,url){const row=document.createElement("div");row.className="rdap-row";
+const tldInput=document.createElement("input");tldInput.className="tld";tldInput.type="text";tldInput.placeholder="例如 cn";tldInput.setAttribute("list","tldOptions");tldInput.value=tld||"";
+const urlWrap=document.createElement("div");urlWrap.style.display="flex";urlWrap.style.alignItems="center";
+const urlInput=document.createElement("input");urlInput.className="url";urlInput.type="text";urlInput.placeholder="留空 = 禁用该后缀的 RDAP";urlInput.value=Array.isArray(url)?url.join("\n"):(url||"");
+const tag=document.createElement("span");tag.className="tag";tag.textContent="已禁用 RDAP";
+const del=document.createElement("button");del.type="button";del.className="del";del.textContent="删除";
+const syncTag=()=>{const hasTld=!!tldInput.value.trim();const empty=!urlInput.value.trim();row.classList.toggle("off",hasTld&&empty);if(hasTld&&empty){if(!tag.parentNode)urlWrap.appendChild(tag);}else if(tag.parentNode){tag.remove();}};
+tldInput.addEventListener("input",()=>{tldInput.value=normalizeTld(tldInput.value);syncTag();});
+tldInput.addEventListener("change",()=>{tldInput.value=normalizeTld(tldInput.value);const key=tldInput.value;
+if(key){const hit=(rdapCurrent[key]||[]).join("\n");urlInput.value=hit||"";}
+syncTag();});
+urlInput.addEventListener("input",syncTag);
+del.addEventListener("click",()=>{row.remove();if(!$("rdapRows").children.length)addRdapRow();});
+urlWrap.appendChild(urlInput);
+row.append(tldInput,urlWrap,del);$("rdapRows").appendChild(row);syncTag();return row;}
+function renderRdap(data){const r=data.rdap||{};rdapCurrent=(r.effective&&Object.keys(r.effective).length)?r.effective:(r.panel||{});
+const host=$("rdapRows");host.textContent="";const source=Object.keys(r.panel||{}).length?r.panel:(r.effective||{});
+for(const key of Object.keys(source).sort())addRdapRow(key,source[key]);if(!host.children.length)addRdapRow();
+const parts=[`面板 ${r.counts?.panel??0} 条`];if(r.filePath){parts.push(`文件 ${r.counts?.file??0} 条（优先）`);parts.push(r.fileError?`文件异常：${r.fileError}`:`路径 ${r.filePath}`);}else{parts.push("未挂载外部文件");}parts.push(`生效 ${r.counts?.effective??0} 条`);$("rdapStatus").textContent=parts.join("　·　");}
+async function loadTldOptions(){try{const response=await fetch("/api/settings/rdap/tlds");if(!response.ok)return;const data=await response.json();if(!data.ok)return;rdapKnown=data.tlds||[];const list=$("tldOptions");list.textContent="";for(const name of rdapKnown){const option=document.createElement("option");option.value=name;list.appendChild(option);}}catch(error){}}
 async function loadRdap(){try{const response=await fetch("/api/settings/rdap");if(response.status===401){location.href="/login?next=/settings";return;}const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"读取失败");renderRdap(data);}catch(error){$("rdapStatus").textContent="读取 RDAP 映射失败："+error.message;}}
-function parseRdapInput(){const raw=$("rdapJson").value.trim();if(!raw)return{};let parsed;try{parsed=JSON.parse(raw);}catch(error){throw new Error("JSON 格式错误："+error.message);}if(parsed===null||typeof parsed!=="object"||Array.isArray(parsed))throw new Error('必须是一个对象，例如 {"cn": ["https://..."]}');return parsed;}
-$("rdapForm").addEventListener("submit",async(event)=>{event.preventDefault();let tlds;try{tlds=parseRdapInput();}catch(error){fail("保存 RDAP 映射",error);return;}const button=event.target.querySelector('button[type=submit]');button.disabled=true;try{const response=await fetch("/api/settings/rdap",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({tlds})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"保存失败");ok(data.message);await loadRdap();}catch(error){fail("保存 RDAP 映射",error);}finally{button.disabled=false;}});
+function collectRdapRows(){const out={};for(const row of $("rdapRows").children){const tld=normalizeTld(row.querySelector(".tld")?.value);if(!tld)continue;out[tld]=splitUrls(row.querySelector(".url")?.value);}return out;}
+$("rdapAdd").addEventListener("click",()=>{const row=addRdapRow();row.querySelector(".tld").focus();});
+$("rdapForm").addEventListener("submit",async(event)=>{event.preventDefault();const tlds=collectRdapRows();const button=event.target.querySelector('button[type=submit]');button.disabled=true;try{const response=await fetch("/api/settings/rdap",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({tlds})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"保存失败");ok(data.message);await loadRdap();}catch(error){fail("保存 RDAP 映射",error);}finally{button.disabled=false;}});
 $("rdapReload").addEventListener("click",async()=>{const button=$("rdapReload");button.disabled=true;try{const response=await fetch("/api/settings/rdap",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({reload:true})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"载入失败");ok(data.message||"已从文件重新载入");await loadRdap();}catch(error){fail("从文件载入",error);}finally{button.disabled=false;}});
 $("rdapReset").addEventListener("click",async()=>{if(!confirm("确定清空设置面板中的 RDAP 映射？（外部文件层不受影响）"))return;const button=$("rdapReset");button.disabled=true;try{const response=await fetch("/api/settings/rdap",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({reset:true})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"清空失败");ok(data.message||"已清空面板配置");await loadRdap();}catch(error){fail("清空 RDAP 映射",error);}finally{button.disabled=false;}});
 $("credentials").addEventListener("submit",async(event)=>{event.preventDefault();if($("newPassword").value!==$("confirmPassword").value){fail("修改账号密码",new Error("两次输入的新密码不一致"));return;}const button=event.target.querySelector("button");button.disabled=true;try{const response=await fetch("/api/auth/change-credentials",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({currentPassword:$("currentPassword").value,username:$("newUsername").value,newPassword:$("newPassword").value})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"保存失败");ok("账号信息更新成功，请重新登录");setTimeout(()=>location.href="/login",1200);}catch(error){fail("修改账号密码",error);}finally{button.disabled=false;}});
