@@ -205,24 +205,25 @@ Token 和 Chat ID 保存后即加密，接口只返回掩码（如 `****9999`）
 
 ### 方式一：设置页面（热更新，保存即生效）
 
-在 `/settings` →「查询设置（RDAP 映射）」里逐行填写，一行一个后缀：
+在 `/settings` →「查询设置（RDAP 映射）」里直接编辑 JSON，键是域名后缀，值是该后缀的 RDAP 服务器地址数组：
 
-| 域名后缀 | RDAP 服务器地址 |
-| --- | --- |
-| `cn` | `https://rdap.example.cn/rdap/` |
-| `jp` | 留空 = 禁用该后缀的 RDAP |
-| `co.uk` | `https://rdap.nominet.uk/` |
+```json
+{
+  "cn": ["https://rdap.example.cn/rdap/"],
+  "jp": [],
+  "co.uk": ["https://rdap.nominet.uk/"]
+}
+```
 
-- **后缀列是下拉框**：候选来自 IANA 完整 TLD 列表（约 1400 条，缓存 72 小时），并合并 IANA 引导文件与已配置的自定义后缀
-  - 列表最后一项是「＋ 自定义后缀（手动输入）」，用于 `co.uk` 这类多级后缀或全新的后缀；输入时自动转小写并去掉前导点（`.CO.UK` → `co.uk`）
-  - 若输入的正好是列表里的后缀，会自动切回下拉选中该项
-- **选择后缀即自动带出它的 RDAP 地址**（含来自外部文件的）；换成没有配置的后缀会清空地址框
-- **选中已配置过的后缀会自动带出它的 RDAP 地址**；选中未配置的后缀会清空地址框，避免把上一个后缀的地址误存过去
-- **地址留空表示禁用该后缀的 RDAP**，该行会标记「已禁用 RDAP」，查询时回退 WHOIS
-- 需要多个备用地址时，在同一格里换行或用逗号分隔（按顺序依次尝试）
-- 后缀支持多级写法（如 `co.uk`），IANA 列表只提供顶级后缀，多级后缀手动输入即可
+- **空数组表示禁用该后缀的 RDAP**，查询时回退 WHOIS（例如上面的 `jp`）
+- **一个后缀可以配多个地址**，按数组顺序依次尝试，适合主地址不可用时留备用
+- 后缀不区分大小写，保存时统一转小写并去掉前导点（`.CO.UK` → `co.uk`）；支持多级后缀（`co.uk`、`com.cn`）
+- IANA 引导文件未收录的后缀（`.cn`/`.jp` 等）直接写在这里即可
+- 想参考完整的后缀列表，可调用 `GET /api/settings/rdap/tlds`（IANA 全量 TLD，约 1400 条）
+- 文本框留空 = 清空面板层配置
+- 只要有**一个**后缀或地址不合法，整份配置就会被拒绝（`invalid_rdap_overrides`）并指出是哪一项，已有配置保持不变
 
-保存后立即生效；「从文件重新载入」可立即读取外部文件，「清空面板配置」只清面板层。
+保存后立即生效；「从文件重新载入」可立即读取外部文件，「清空面板配置」只清面板层。JSON 语法错误会提示出错位置且不会发出请求。
 
 ### 方式二：外部 JSON 文件（适合挂载进容器）
 
@@ -292,6 +293,7 @@ services:
 | `settings.json` | 用户名、密码哈希、会话密钥、加密后的 Telegram 配置（600） |
 | `config.key` | 自动生成的 AES-256-GCM 密钥（600） |
 | `rdap-bootstrap.json` | IANA RDAP 引导缓存，72 小时刷新 |
+| `tlds.txt` | IANA 全量 TLD 列表缓存，供 `GET /api/settings/rdap/tlds` 使用 |
 | `reminders.json` | 每个域名的到期日与提醒时间，用于去重 |
 
 备份与恢复：
@@ -339,16 +341,17 @@ docker run --rm \
 | 字段 | 说明 |
 | --- | --- |
 | `domain` / `asciiDomain` | 原始输入与 punycode 形式（IDN 会同时给出） |
-| `tld` / `rdapServer` | 后缀与实际使用的 RDAP 服务器 |
+| `tld` | 域名后缀 |
 | `source` | 数据来源：`rdap` 或 `whois` |
-| `ldhName` / `unicodeName` | 注册局返回的原始名称 |
-| `registration` / `expiration` / `lastChanged` | 注册、到期、最后变更时间（ISO 8601） |
+| `rdapServer` / `whoisServer` | 实际使用的服务器，与 `source` 对应，另一个为 `null` |
+| `ldhName` / `unicodeName` | 注册局或 WHOIS 返回的原始名称 |
+| `registration` / `expiration` / `lastChanged` | 注册、到期、最后变更时间 |
 | `registrar` | 注册商对象，含 `handle` 与 `name` |
 | `nameservers` / `status` | 名称服务器列表与域名状态 |
 | `dnssec` | DNSSEC 状态，含 `delegationSigned` 与 `dsData` |
-| `events` | 注册局事件表（键名沿用注册局原文，如 `last changed`） |
+| `events` | 事件表（键名沿用数据源原文，如 `last changed`） |
 
-到期提醒与抢注判断以 `expiration` 为准。
+时间字段在 RDAP 来源下是完整的 ISO 8601；回退到 WHOIS 时取决于注册局返回的文本，可能只有时间或日期片段。**到期提醒与抢注判断以 `expiration` 为准**，解析不出该字段时不会误发提醒。
 
 ### 错误码
 
@@ -371,7 +374,6 @@ docker run --rm \
 | `telegram_timeout` | 504 | Telegram 请求超过 15 秒 |
 | `page_unavailable` | 500 | 页面文件缺失或不可读 |
 | `settings_corrupted` / `settings_unreadable` | 500 | 设置文件损坏或读取失败 |
-
 | `invalid_config_key` | 500 | 加密密钥缺失或不匹配 |
 | `telegram_decrypt_failed` | 500 | 无法解密 Telegram 配置 |
 | `invalid_data_dir` | 500 | `DATA_DIR` 未配置 |
