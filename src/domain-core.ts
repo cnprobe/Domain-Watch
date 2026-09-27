@@ -676,14 +676,130 @@ function resolveTld(
   return { tld: "", urls: [], candidates, source: "none" };
 }
 
+// ---------- 查询结果缓存 ----------
+//
+// 到期时间一天也变不了几次，而监控页默认每 60s 就把所有域名重新问一遍外网。
+// 同一个后缀的 whois 链常常要走 2-3 跳（实测 .mk/.be 要 ~2.5s，.ng 更久），
+// 于是一轮刷新光等网络就要 5s+；把刷新间隔调到 10s 更是直接去打爆上游限流。
+// 缓存这段时间内的**成功**结果即可让轮询几乎零成本。
+//
+// 只缓存成功结果：一次网络抖动不该把域名黏住 10 分钟。
+// 显式的用户动作（立即检查 / 单行刷新）传 fresh=true 绕过缓存，保证「点了就重查」。
+//
+// 时长可由设置面板调整（CACHE_TTL_MINUTES，1-1440 分钟，默认 10）。改成可变是为了让
+// 保存后立即生效，且对**已缓存**的条目同样生效——条目只存写入时间，过期判定读的是
+// 当前 TTL，所以改大之后已经"过期"的条目会重新变得可用，不用重启也不用清缓存。
+export const RESULT_CACHE_MIN_MINUTES = 1;
+export const RESULT_CACHE_MAX_MINUTES = 1440;
+export const RESULT_CACHE_DEFAULT_MINUTES = 10;
+const RESULT_CACHE_MAX = 2000;
+const resultCache = new Map<string, { at: number; result: Record<string, unknown> }>();
+let resultCacheTtlMs = RESULT_CACHE_DEFAULT_MINUTES * 60 * 1000;
+
+/** 设置缓存时长（分钟），返回实际生效的值（越界会被夹到范围内） */
+export function setResultCacheTtlMinutes(minutes: unknown): number {
+  const n = Number(minutes);
+  const safe = Number.isFinite(n)
+    ? Math.max(RESULT_CACHE_MIN_MINUTES, Math.min(RESULT_CACHE_MAX_MINUTES, Math.floor(n)))
+    : RESULT_CACHE_DEFAULT_MINUTES;
+  resultCacheTtlMs = safe * 60 * 1000;
+  return safe;
+}
+
+export function getResultCacheTtlMinutes(): number {
+  return Math.round(resultCacheTtlMs / 60000);
+}
+
+/**
+ * 缓存现状，供监控页显示「缓存多久 / 什么时候会重新查」。
+ * nextExpiryAt 取最早过期的那条：它是下一次真正会重新拉网络的时刻。
+ */
+export function getResultCacheInfo(): { ttlMinutes: number; size: number; nextExpiryAt: number | null } {
+  const now = Date.now();
+  let nextExpiryAt: number | null = null;
+  for (const entry of resultCache.values()) {
+    const expiry = entry.at + resultCacheTtlMs;
+    if (expiry <= now) continue;
+    if (nextExpiryAt === null || expiry < nextExpiryAt) nextExpiryAt = expiry;
+  }
+  return { ttlMinutes: getResultCacheTtlMinutes(), size: resultCache.size, nextExpiryAt };
+}
+
+function readResultCache(key: string): Record<string, unknown> | null {
+  const hit = resultCache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > resultCacheTtlMs) {
+    resultCache.delete(key);
+    return null;
+  }
+  // 重新插入到队尾，配合 size 上限即构成 LRU 淘汰
+  resultCache.delete(key);
+  resultCache.set(key, hit);
+  return hit.result;
+}
+
+function writeResultCache(key: string, result: Record<string, unknown>): void {
+  resultCache.set(key, { at: Date.now(), result });
+  while (resultCache.size > RESULT_CACHE_MAX) {
+    const oldest = resultCache.keys().next().value;
+    if (oldest === undefined) break;
+    resultCache.delete(oldest);
+  }
+}
+
+// ---------- xxapi 无效后缀记忆 ----------
+//
+// xxapi.cn 对某些后缀（实测 .mk / .be）稳定返回 code=200、msg 还写着「数据请求成功」，
+// 但 Expiration Time 等字段全是空串，被判 parse_error，于是白白等掉一次约 900ms
+// 的请求，再去 UAPI 拿真数据。记住「这个后缀的 xxapi 没用」，短期内直接跳过。
+//
+// 只在 parse_error（空数据）时记录：timeout / http_error 属于临时故障，不该封源。
+// 按**后缀**而非域名记忆——.me 上 xxapi 是有数据的（kexue.me 就走通了），不能一刀切。
+// TTL 到期自动恢复，上游补上数据后无需重启。
+const XXAPI_SKIP_TTL_MS = 30 * 60 * 1000;
+const xxapiSkipUntil = new Map<string, number>();
+
+function isXxapiSkipped(tld: string): boolean {
+  const until = xxapiSkipUntil.get(tld);
+  if (!until) return false;
+  if (Date.now() >= until) {
+    xxapiSkipUntil.delete(tld);
+    return false;
+  }
+  return true;
+}
+
+function markXxapiUnusable(tld: string): void {
+  xxapiSkipUntil.set(tld, Date.now() + XXAPI_SKIP_TTL_MS);
+  if (xxapiSkipUntil.size > 500) {
+    for (const [key, until] of xxapiSkipUntil) {
+      if (Date.now() >= until) xxapiSkipUntil.delete(key);
+    }
+  }
+}
+
 /**
  * 完整查询流程：归一化 → IDN 转 punycode → 匹配 TLD 引导 → RDAP 查询 → 结构化结果。
  * 抛错（带 code）：invalid_domain / not_found / timeout / network_error / http_error / parse_error / ...
  */
-async function queryDomain(domain: string): Promise<Record<string, unknown>> {
+async function queryDomain(domain: string, options?: { fresh?: boolean }): Promise<Record<string, unknown>> {
   const input = normalizeDomainInput(domain);
   if (!input) throw makeError("invalid_domain", "缺少 domain 参数");
   const ascii = toAsciiDomain(input);
+  const cacheKey = ascii.toLowerCase();
+  if (options?.fresh !== true) {
+    const hit = readResultCache(cacheKey);
+    if (hit) {
+      console.log("[domain-watch] 结果缓存命中（" + ascii + "）");
+      return hit;
+    }
+  }
+  const result = await queryDomainUncached(input, ascii);
+  writeResultCache(cacheKey, result);
+  return result;
+}
+
+async function queryDomainUncached(input: string, ascii: string): Promise<Record<string, unknown>> {
   await loadOverridesFile(); // 热更新：外部文件最多每 30 秒检查一次
   const map = await getBootstrapMap();
   // 按候选后缀从长到短匹配：覆盖层 → IANA 引导文件
@@ -1002,16 +1118,23 @@ async function queryWhoisFallback(asciiDomain: string, inputDomain: string, tld:
   const deadline = Date.now() + WHOIS_CHAIN_BUDGET_MS;
   let lastErr: unknown = null;
 
-  // 1) 首选 xxapi.cn（免费，结构化 JSON）
-  try {
-    const r = await queryXxapiWhois(asciiDomain, inputDomain, tld);
-    console.log("[domain-watch] whois 回退成功（xxapi.cn）：" + asciiDomain);
-    return r;
-  } catch (e1) {
-    const c1 = (e1 as AppError).code;
-    if (isTerminal(c1)) throw e1;
-    lastErr = e1;
-    console.log("[domain-watch] xxapi.cn 失败（" + c1 + "）: " + ((e1 as AppError).message || String(e1)));
+  // 1) 首选 xxapi.cn（免费，结构化 JSON）——但已确认对该后缀无数据的 TLD 直接跳过，
+  //    免得每次都白等一次约 900ms 的空响应
+  if (isXxapiSkipped(tld)) {
+    console.log("[domain-watch] 后缀 " + tld + " 的 xxapi.cn 近期只返回空数据，本次跳过：" + asciiDomain);
+  } else {
+    try {
+      const r = await queryXxapiWhois(asciiDomain, inputDomain, tld);
+      console.log("[domain-watch] whois 回退成功（xxapi.cn）：" + asciiDomain);
+      return r;
+    } catch (e1) {
+      const c1 = (e1 as AppError).code;
+      if (isTerminal(c1)) throw e1;
+      lastErr = e1;
+      // 只有「空数据」才说明这个源对整个后缀没用；超时/500 是临时故障，不封源
+      if (c1 === "parse_error") markXxapiUnusable(tld);
+      console.log("[domain-watch] xxapi.cn 失败（" + c1 + "）: " + ((e1 as AppError).message || String(e1)));
+    }
   }
   // 2) UAPI（访客免费额度）
   if (Date.now() < deadline) {

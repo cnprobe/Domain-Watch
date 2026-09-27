@@ -117,9 +117,17 @@ npm run website:start      # 读取根目录 .env 并启动
 
 监控面板顶部可以直接添加域名，列表每行有「移除」按钮，增删即时生效并有右上角结果弹窗；也可以在设置页的「监控设置」里一次性编辑整个列表。
 
-监控列表还有**续费价格**、**商家**、**商家网站**三列，用「编辑」按钮填写。这三项注册局（RDAP / WHOIS）都不提供，只能自己记录：商家留空时会自动显示查询到的注册商名。域名从监控列表移除时，对应备注会一并清掉。
+监控列表还有**到期时间**、**续费价格**、**商家**、**商家网站**四列可编辑，用每行的「编辑」按钮填写。续费价格 / 商家 / 商家网站注册局（RDAP / WHOIS）都不提供，只能自己记录：商家留空时会自动显示查询到的注册商名。域名从监控列表移除时，对应备注会一并清掉。
+
+**手填到期时间**是一个兜底：正常情况下到期时间来自注册局，只有查不到时才会采用手填值，页面上会标注「手填」。检测得到的值优先，永远不会被手填值覆盖——手填值只存在备注里，检测结果不会写回那里。
+
+每行的「刷新」按钮只重查这一个域名（不重算顶部统计、不发通知），比整表刷新快得多。「操作」列右侧还有一个「折叠」按钮，点击后只收起列表行、表头保留，随时可以再展开；折叠状态记在浏览器 `localStorage` 里。
+
+列表**逐行淡入**：数据通过 SSE 边查边推，查完一个显示一个，首行通常 0.5 秒左右就能出现（整表要 5 秒以上）。刷新期间旧数据不会清空，新数据到了就地替换该行。表头上方有「正在加载…」/「正在刷新中」状态行，右上角有「N 秒后刷新」倒计时，间隔由 `REFRESH_INTERVAL` 决定。系统开启「减少动态效果」时动画自动关闭。
 
 设置页包含三块：监控设置、查询设置（RDAP 映射）、Telegram 通知，外加账号安全。所有保存操作都有右上角结果弹窗，失败时用红框与红字标出并带具体原因。
+
+监控设置里有**页面刷新间隔**（多久重新拉一次数据）和**查询缓存时长**（多久复用上次查询结果）两个独立旋钮：前者决定轮询频率，后者决定轮询时是否真的要重新请求注册局。缓存越长越省上游请求，代价是页面上的数据越旧。监控页表头右侧和页脚都会显示当前缓存时长，以及距离「下一次真正重新查询注册局」还有多久的倒计时。
 
 ### 界面风格
 
@@ -297,6 +305,8 @@ watch.example.com {
 | `BACKORDER_NOTIFY` | `true` | 过期后发送一次抢注/赎回提醒 |
 | `CHECK_TIME` | `09:00` | 每日检查时间，24 小时制 `HH:mm`（使用 `TZ` 本地时间） |
 | `RUN_ON_STARTUP` | `false` | 启动时立即检查一次 |
+| `REFRESH_INTERVAL` | `60` | 监控页自动重新拉取数据的间隔秒数，范围 10-3600。**只影响页面轮询**，不改变 `CHECK_TIME` 决定的真正检查与通知 |
+| `CACHE_TTL_MINUTES` | `10` | 查询结果缓存时长（分钟），范围 1-1440。缓存期间刷新直接复用上次结果，不再请求 RDAP / WHOIS。只缓存**成功**结果；「立即检查」、每行「刷新」、每日定时检查都会绕过缓存强制重查 |
 
 ### Telegram
 
@@ -450,9 +460,11 @@ docker run --rm \
 | `PUT /api/settings/rdap` | 登录 | 保存 RDAP 映射，立即生效；`{"reset":true}` 清空面板层 |
 | `POST /api/settings/rdap` | 登录 | 立即从外部文件重新载入 |
 | `PUT /api/settings/telegram` | 登录 | 保存 Telegram 配置 |
-| `GET /api/monitor` | 登录 | 实时查询全部监控域名并返回汇总，不发通知；每项含 `price` / `vendor` / `vendorUrl` / `registrarName` |
+| `GET /api/monitor` | 登录 | 实时查询全部监控域名并返回汇总，不发通知；每项含 `price` / `vendor` / `vendorUrl` / `registrarName` / `metaExpiration` / `expirationManual`，顶层含 `refreshInterval` |
+| `GET /api/monitor/stream` | 登录 | **SSE 流式**，查完一个域名推一条 `data: {"type":"item","item":…,"summary":…}`，全部结束后推一条 `{"type":"done",…}`（含 `checkedAt` / `refreshInterval` / `configSource`）。让监控页逐行显示，而不是干等整表。末尾服务端会关闭连接，客户端收到 `done` 后应 `close()`，否则 `EventSource` 会自动重连。若前面挂了反向代理，需保留响应头 `X-Accel-Buffering: no`，否则代理会缓冲整个流 |
+| `POST /api/monitor/refresh` | 登录 | **只重查一个域名**并返回该行：`{"domain":"a.com"}` → `{"ok":true,"item":{…}}`。不重算汇总、不发通知；域名不在监控列表中返回 `unknown_domain` |
 | `POST /api/settings/reminders/clear` | 登录 | 清除提醒记录，同时重置「今日已提醒」与「已发过抢注提醒」两个标记，让两类通知都能再发一次；传 `{"domain":"a.com"}` 只清单个域名，不传则清全部 |
-| `PUT /api/settings/domain-meta` | 登录 | 保存域名备注：`{"set":{"example.com":{"price":"¥85/年","vendor":"Cloudflare","vendorUrl":"dash.cloudflare.com"}}}`；值为 `null` 或传 `remove` 即删除 |
+| `PUT /api/settings/domain-meta` | 登录 | 保存域名备注：`{"set":{"example.com":{"expiration":"2027-06-25","price":"¥85/年","vendor":"Cloudflare","vendorUrl":"dash.cloudflare.com"}}}`；值为 `null` 或传 `remove` 即删除。`expiration` 是**可选的手填到期日**（`YYYY-MM-DD`），只在 RDAP / WHOIS 查不到到期时间时兜底；**省略该字段表示"不修改"**，所以只改价格不会把手填日期清掉 |
 | `PUT /api/settings/monitor/domains` | 登录 | 增删监控域名：`{"add":"a.com,b.com"}` / `{"remove":"a.com"}`，可同时传；自动去重并清理被移除域名的提醒记录 |
 | `GET /api/status` | 登录 | 监控参数与 Telegram 是否已配置 |
 | `POST /api/test-notify` | 登录 | 发送测试通知 |
@@ -574,7 +586,32 @@ npm run website:start # 启动（读取 .env）
 npm run website:dev   # 重新打包并启动
 ```
 
-项目没有自动化测试脚本，功能通过 Docker 容器和实际 Telegram 配置验证。
+### 前端页面的静态检查
+
+四个页面的 `<script>` 都是 `"use strict"`，给未声明的变量赋值会在运行时抛 `ReferenceError`，而且**后面的语句全部不执行**——页面上表现为某个区域永远不更新，非常难查。改完前端后跑一次：
+
+```sh
+# 抽出每个页面的内联脚本
+python3 - <<'PY'
+import re
+for src, out in [('website/monitor.html','/tmp/monitor.js'),
+                 ('website/settings.html','/tmp/settings.js'),
+                 ('website/login.html','/tmp/login.js'),
+                 ('admin.html','/tmp/admin.js')]:
+    s = open(src, encoding='utf-8').read()
+    open(out, 'w', encoding='utf-8').write(re.findall(r'<script>(.*?)</script>', s, re.S)[-1])
+PY
+
+# 只看 TS2304（Cannot find name），其余 DOM 类型报错可忽略
+npx tsc --noEmit --allowJs --checkJs --target es2022 --module esnext \
+        --moduleResolution bundler --lib es2022,dom /tmp/*.js | grep TS2304
+```
+
+无输出即通过。注意 `tsc` 会把模板字符串里的 HTML 属性（`class="…"`）正确解析掉，所以用真正的解析器比用正则可靠。
+
+> **不要用 jsdom 验证严格模式**：jsdom 的 `window.eval()` 和它的内部 VM 上下文都不会对未声明赋值抛错（会悄悄创建全局变量），所以 jsdom 跑绿了并不代表浏览器里不报错。需要在 jsdom 里驱动页面时，把事件回调包在 `try/catch` 里并断言捕获列表为空。
+
+项目没有自动化测试脚本，后端功能通过 Docker 容器和实际 Telegram 配置验证。
 
 ## 安全建议
 
@@ -589,6 +626,24 @@ npm run website:dev   # 重新打包并启动
 - 能读取 Docker 日志或数据卷的人应视为管理员。
 - Telegram Bot Token 泄露后立即在 BotFather 撤销并重新生成。
 - 只运行一个实例，避免重复执行提醒任务。
+
+## 本仓库相对上游的改动
+
+基于上游 `v0.0.7`（`ee58506`）的本地改动。**功能类改动**（接口、配置项）已并入上文对应章节，这里只列实现层面的差异，便于对照上游：
+
+| 位置 | 改动 |
+| --- | --- |
+| `src/domain-core.ts` | 新增查询结果缓存（时长可在设置面板调整，1-1440 分钟，默认 10；LRU 容量 2000，**只缓存成功结果**）；`queryDomain(domain, { fresh: true })` 可绕过读缓存。whois 回退链新增「该后缀的 xxapi.cn 只返回空壳」记忆（按后缀，30 分钟，仅 `parse_error` 时记录），跳过注定失败的第一跳 |
+| `website/monitor.mjs` | 抽出 `buildItem()` 供整表查询与单行刷新共用；新增 `streamSnapshot()`（SSE 逐个产出）与 `refreshDomain()`（只查一个域名） |
+| `website/server.mjs` | 新增 `GET /api/monitor/stream`（SSE，含 `X-Accel-Buffering: no`）与 `POST /api/monitor/refresh`；`PUT /api/settings/monitor` 增加 `refreshInterval` 校验 |
+| `website/auth.mjs` | 域名备注增加 `expiration` 字段与 `YYYY-MM-DD` 严格校验；监控设置增加 `refreshInterval`（10-3600 秒） |
+| 四个页面 | 移除 `.button` / `.nav-link` 的 `→` 箭头伪元素（`admin.html` 的 `.raw-toggle` 保留） |
+
+三个设计取舍值得留意，因为它们容易被后来的人「顺手改坏」：
+
+1. **缓存与「立即检查」的关系**。页面轮询走缓存，但「立即检查」、每行的「刷新」、以及每天的定时检查都传 `fresh: true` 强制重查。定时检查必须用新鲜数据，否则提醒判定会基于过期快照。
+2. **流式加载时「就地替换」而非「追加」**。刷新时故意不清空旧行（避免屏幕闪空），因此新数据必须替换同域名的旧行，否则每轮刷新行数翻倍。匹配选择器必须带 `:not(.meta-edit-row)`，因为编辑行也带 `data-domain`。
+3. **手填到期时间是兜底，不是覆盖**。`resolveExpiration()` 只在检测不到到期时间时才用手填值；检测得到的值优先。
 
 ## License
 

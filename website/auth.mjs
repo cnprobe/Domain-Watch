@@ -87,6 +87,54 @@ function normalizeMetaUrl(value) {
   return url.toString();
 }
 
+/**
+ * 手填到期日：只在 RDAP/WHOIS 查不到到期时间时兜底，所以必须是纯日期
+ * YYYY-MM-DD（与 formatDate 同格式），并按 UTC 解析，避开服务器本地时区。
+ */
+const META_DATE_MAX = 10;
+function normalizeMetaDate(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  if (text.length > META_DATE_MAX || !/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    throw fail("invalid_domain_meta", `手填到期时间格式应为 YYYY-MM-DD，收到：${text.slice(0, 30)}`);
+  }
+  const ms = Date.parse(`${text}T00:00:00Z`);
+  if (Number.isNaN(ms)) {
+    throw fail("invalid_domain_meta", `手填到期时间不是有效日期：${text}`);
+  }
+  // 2027-02-31 会被 Date.parse 顺延成 3-3，这里要求回写一致来挡掉
+  const back = new Date(ms);
+  const p = (n) => (n < 10 ? "0" + n : "" + n);
+  if (`${back.getUTCFullYear()}-${p(back.getUTCMonth() + 1)}-${p(back.getUTCDate())}` !== text) {
+    throw fail("invalid_domain_meta", `手填到期时间不是有效日期：${text}`);
+  }
+  return text;
+}
+
+// 监控页自动刷新间隔（秒）。和「每日检查时间」是两件事：那个决定什么时候
+// 真正去查 RDAP/WHOIS 并发通知，这个只决定页面多久重新拉一次数据。
+export const REFRESH_INTERVAL_MIN = 10;
+export const REFRESH_INTERVAL_MAX = 3600;
+export const REFRESH_INTERVAL_DEFAULT = 60;
+
+export function normalizeRefreshInterval(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return REFRESH_INTERVAL_DEFAULT;
+  return Math.max(REFRESH_INTERVAL_MIN, Math.min(REFRESH_INTERVAL_MAX, Math.floor(n)));
+}
+
+// 查询结果缓存时长（分钟）。与 REFRESH_INTERVAL 一样是纯前端轮询相关的旋钮：
+// 缓存越长越省上游请求，但页面上的数据也越"旧"。
+export const CACHE_TTL_MIN = 1;
+export const CACHE_TTL_MAX = 1440;
+export const CACHE_TTL_DEFAULT = 10;
+
+export function normalizeCacheTtl(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return CACHE_TTL_DEFAULT;
+  return Math.max(CACHE_TTL_MIN, Math.min(CACHE_TTL_MAX, Math.floor(n)));
+}
+
 const SCRYPT_KEYLEN = 64;
 const SCRYPT_SALT_BYTES = 16;
 const scryptAsync = promisify(scrypt);
@@ -284,6 +332,8 @@ export class SettingsStore {
       backorderNotify: envBoolean(this.env.BACKORDER_NOTIFY, true),
       checkTime: String(this.env.CHECK_TIME || "09:00").trim(),
       runOnStartup: envBoolean(this.env.RUN_ON_STARTUP, false),
+      refreshInterval: normalizeRefreshInterval(this.env.REFRESH_INTERVAL),
+      cacheTtl: normalizeCacheTtl(this.env.CACHE_TTL_MINUTES),
     };
   }
 
@@ -298,6 +348,8 @@ export class SettingsStore {
       backorderNotify: stored.backorderNotify !== false,
       checkTime: String(stored.checkTime ?? "09:00"),
       runOnStartup: stored.runOnStartup === true,
+      refreshInterval: normalizeRefreshInterval(stored.refreshInterval),
+      cacheTtl: normalizeCacheTtl(stored.cacheTtl),
       source: "panel",
       updatedAt: stored.updatedAt || null,
     };
@@ -331,6 +383,8 @@ export class SettingsStore {
       backorderNotify: next.backorderNotify !== false,
       checkTime: String(next.checkTime ?? "09:00"),
       runOnStartup: next.runOnStartup === true,
+      refreshInterval: normalizeRefreshInterval(next.refreshInterval),
+      cacheTtl: normalizeCacheTtl(next.cacheTtl),
       updatedAt: new Date().toISOString(),
     };
     await this.save();
@@ -378,6 +432,7 @@ export class SettingsStore {
     for (const [key, value] of Object.entries(raw)) {
       if (!value || typeof value !== "object") continue;
       out[String(key).toLowerCase()] = {
+        expiration: String(value.expiration || ""),
         price: String(value.price || ""),
         vendor: String(value.vendor || ""),
         vendorUrl: String(value.vendorUrl || ""),
@@ -388,7 +443,8 @@ export class SettingsStore {
 
   /**
    * 保存域名备注。
-   * set: { "example.com": { price, vendor, vendorUrl } }；值为 null 表示删除该条。
+   * set: { "example.com": { expiration, price, vendor, vendorUrl } }；值为 null 表示删除该条。
+   * 省略 expiration 表示「不改」，避免别处保存把手填到期时间清掉。
    * remove: ["example.com", ...] 显式删除。
    */
   async setDomainMeta({ set, remove } = {}) {
@@ -410,14 +466,18 @@ export class SettingsStore {
         if (typeof value !== "object" || Array.isArray(value)) {
           throw fail("invalid_domain_meta", `${domain} 的备注必须是对象`);
         }
+        // expiration 缺省时保留原值：只改价格/商家的保存不能覆盖掉手填到期时间
+        const expiration = value.expiration === undefined
+          ? (current[domain]?.expiration || "")
+          : normalizeMetaDate(value.expiration);
         const price = normalizeMetaText(value.price, "续费价格");
         const vendor = normalizeMetaText(value.vendor, "商家");
         const vendorUrl = normalizeMetaUrl(value.vendorUrl);
-        if (!price && !vendor && !vendorUrl) {
+        if (!expiration && !price && !vendor && !vendorUrl) {
           delete current[domain];
           continue;
         }
-        current[domain] = { price, vendor, vendorUrl };
+        current[domain] = { expiration, price, vendor, vendorUrl };
       }
     }
 

@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { createDomainWatch } from "./domain-watch.mjs";
 import { createMonitor, isValidCheckTime, REMIND_DAYS_MAX, REMIND_DAYS_MIN, DOMAINS_MAX_LENGTH, TelegramNotifier } from "./monitor.mjs";
-import { SettingsStore, clearSessionCookie, fail, parseCookies, sessionCookie } from "./auth.mjs";
+import { SettingsStore, clearSessionCookie, fail, parseCookies, sessionCookie, REFRESH_INTERVAL_MIN, REFRESH_INTERVAL_MAX, CACHE_TTL_MIN, CACHE_TTL_MAX } from "./auth.mjs";
 import { createLoginGuard, normalizeIp } from "./login-guard.mjs";
 
 const rootDir = process.cwd();
@@ -533,6 +533,25 @@ async function main() {
           throw fail("invalid_check_time", "每日检查时间格式必须是 HH:mm（24 小时制），例如 09:00");
         }
 
+        const refreshInterval = Number(
+          body.refreshInterval === undefined ? previousPanel.refreshInterval : body.refreshInterval,
+        );
+        if (
+          !Number.isFinite(refreshInterval) ||
+          refreshInterval < REFRESH_INTERVAL_MIN ||
+          refreshInterval > REFRESH_INTERVAL_MAX
+        ) {
+          throw fail(
+            "invalid_refresh_interval",
+            `刷新间隔必须是 ${REFRESH_INTERVAL_MIN}-${REFRESH_INTERVAL_MAX} 之间的秒数`,
+          );
+        }
+
+        const cacheTtl = Number(body.cacheTtl === undefined ? previousPanel.cacheTtl : body.cacheTtl);
+        if (!Number.isFinite(cacheTtl) || cacheTtl < CACHE_TTL_MIN || cacheTtl > CACHE_TTL_MAX) {
+          throw fail("invalid_cache_ttl", `缓存时长必须是 ${CACHE_TTL_MIN}-${CACHE_TTL_MAX} 之间的分钟数`);
+        }
+
         const saved = await settingsStore.setMonitorSettings({
           domains,
           remindDays: Math.floor(remindDays),
@@ -540,6 +559,8 @@ async function main() {
           backorderNotify: (body.backorderNotify === undefined ? previousPanel.backorderNotify : body.backorderNotify) !== false,
           checkTime,
           runOnStartup: (body.runOnStartup === undefined ? previousPanel.runOnStartup : body.runOnStartup) === true,
+          refreshInterval: Math.floor(refreshInterval),
+          cacheTtl: Math.floor(cacheTtl),
         });
         const { current } = monitor.applyConfig({ ...saved, source: "panel" });
         // 域名列表被整体改写时，顺带清掉已移除域名的提醒记录与备注——否则
@@ -782,6 +803,52 @@ async function main() {
       } catch (error) {
         sendJson(res, statusForError(error), errorBody(error));
       }
+      return;
+    }
+
+    // 单行刷新：只重查一个域名，不重算 summary、不发通知
+    if (req.method === "POST" && url.pathname === "/api/monitor/refresh") {
+      const auth = requireApiAuth(req, res);
+      // 必须传 auth，否则 requireSameOriginForSession 拿不到 session 会跳过同源校验
+      if (!auth || !requireSameOriginForSession(req, res, auth)) return;
+      try {
+        const body = await readJsonBody(req);
+        const domain = typeof body.domain === "string" ? body.domain.trim() : "";
+        if (!domain) throw fail("invalid_domain", "请提供 domain");
+        sendJson(res, 200, { ok: true, item: await monitor.refreshDomain(domain) });
+      } catch (error) {
+        sendError(res, error);
+      }
+      return;
+    }
+
+    // 监控列表流式加载：查完一个域名就推一个，页面因此能逐行淡入，
+    // 而不是干等整表（约 5 秒）才一次性出现。EventSource 断线会自动重连，
+    // 所以推完必须 res.end()，前端收到 done 后也要 close()。
+    if (req.method === "GET" && url.pathname === "/api/monitor/stream") {
+      if (!requireApiAuth(req, res)) return;
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        // 反向代理（如 nginx）默认会缓冲 SSE，关掉才能逐条即时到达
+        "X-Accel-Buffering": "no",
+      });
+      res.write(": open\n\n");
+      let closed = false;
+      req.on("close", () => { closed = true; });
+      try {
+        for await (const event of monitor.streamSnapshot()) {
+          if (closed) break;
+          res.write(`data: ${JSON.stringify(event)}\n\n`);
+        }
+      } catch (error) {
+        if (!closed) {
+          const message = error instanceof Error ? error.message : String(error);
+          res.write(`data: ${JSON.stringify({ type: "error", error: { message } })}\n\n`);
+        }
+      }
+      if (!closed) res.end();
       return;
     }
 

@@ -13,6 +13,12 @@ import {
   setOverridesFile,
   setRdapOverrides,
   setStorageDir,
+  setResultCacheTtlMinutes,
+  getResultCacheTtlMinutes,
+  getResultCacheInfo,
+  RESULT_CACHE_MIN_MINUTES,
+  RESULT_CACHE_MAX_MINUTES,
+  RESULT_CACHE_DEFAULT_MINUTES,
 } from "../src/domain-core.ts";
 import { fail } from "./auth.mjs";
 
@@ -37,5 +43,12 @@ export function createDomainWatch({ dataDir }) {
     getRdapOverrides,
     loadOverridesFile,
     normalizeOverrideMap,
+    // 查询结果缓存（时长可在设置面板调整）
+    setResultCacheTtlMinutes,
+    getResultCacheTtlMinutes,
+    getResultCacheInfo,
+    RESULT_CACHE_MIN_MINUTES,
+    RESULT_CACHE_MAX_MINUTES,
+    RESULT_CACHE_DEFAULT_MINUTES,
   };
 }

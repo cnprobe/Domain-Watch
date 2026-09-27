@@ -38,10 +38,8 @@
   .nav { display: flex; align-items: stretch; }
   .nav-link { display: inline-flex; align-items: center; gap: 6px; padding: 0 20px; border-left: 1px solid var(--line); font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--black); background: none; text-decoration: none; cursor: pointer; transition: color 0.15s ease-out, background-color 0.15s ease-out, border-color 0.15s ease-out; }
   .nav-link:hover, .nav-link:focus-visible { color: var(--red); background: var(--wash); border-left-color: var(--red); }
-  .nav-link::after { content: "\2192"; }
   /* 按钮：方角、粗体、纯不透明度过渡；箭头是排版的一部分 */
   .button { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 22px; border: 1px solid var(--black); border-radius: 0; background: var(--black); color: var(--white); font-family: var(--sans); font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; text-decoration: none; cursor: pointer; transition: opacity 0.15s ease-out, color 0.15s ease-out, background-color 0.15s ease-out, border-color 0.15s ease-out; }
-  .button::after { content: "\2192"; }
   .button:hover, .button:focus-visible { opacity: 0.8; }
   .button:active { opacity: 0.7; }
   .button:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
@@ -64,7 +62,12 @@
   input[type=number]:focus, textarea:focus { border-color: var(--red); }
   .check { display: flex; align-items: center; gap: 10px; margin: 20px 0 0; font-size: 13px; letter-spacing: 0.04em; color: var(--muted); }
   .check input { width: 15px; height: 15px; min-height: 0; accent-color: var(--black); }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 32px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 32px; row-gap: 12px; }
+  /* 独占一整行的字段（如监控域名）：其余四项并排一行，它换行到下面，
+     宽度铺满后右下角的拖拽把手才好按。行间距用 row-gap 收紧，否则
+     「提示文字 24px 下边距 + 32px 间距」会把它推得离上一行很远。 */
+  .grid .span-all { grid-column: 1 / -1; }
+  .grid .span-all .hint { margin-bottom: 0; }
   /* 监控域名用普通输入框的高度（44px），需要写多行时可拖右下角放大 */
   #monitorDomains { min-height: 44px; }
   #rdapJson { min-height: 200px; }
@@ -165,7 +168,6 @@
     <p class="hint">保存后<strong>立即生效</strong>，无需重启容器。当前配置来源：<strong id="configSource">读取中…</strong>　<span class="muted" id="configUpdated"></span></p>
     <form id="monitorForm">
       <div class="grid">
-        <div><label for="monitorDomains">监控域名</label><textarea id="monitorDomains" rows="1" placeholder="example.com, example.org" title="支持逗号、空格或换行分隔，可拖动右下角调整高度"></textarea></div>
         <div>
           <label for="monitorRemindDays">提前提醒天数</label>
           <input id="monitorRemindDays" type="number" min="0" max="365" step="1" required>
@@ -176,6 +178,17 @@
           <input id="monitorCheckTime" type="text" inputmode="numeric" placeholder="09:00" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" required>
           <p class="hint">24 小时制 HH:mm，使用容器时区 TZ</p>
         </div>
+        <div>
+          <label for="monitorRefreshInterval">页面刷新间隔</label>
+          <input id="monitorRefreshInterval" type="number" min="10" max="3600" step="1" required>
+          <p class="hint">10-3600 秒，监控页多久自动重新拉一次数据（不影响上面的检查时间）</p>
+        </div>
+        <div>
+          <label for="monitorCacheTtl">查询缓存时长</label>
+          <input id="monitorCacheTtl" type="number" min="1" max="1440" step="1" required>
+          <p class="hint">1-1440 分钟。缓存期间刷新直接复用上次结果，不再请求 RDAP/WHOIS。越长越省上游请求，但数据也越旧</p>
+        </div>
+        <div class="span-all"><label for="monitorDomains">监控域名</label><textarea id="monitorDomains" rows="1" placeholder="example.com, example.org" title="支持逗号、空格或换行分隔，可拖动右下角调整高度"></textarea></div>
       </div>
       <label class="check"><input id="monitorDailyRemind" type="checkbox" checked> 提醒窗口内每天提醒一次</label>
       <label class="check"><input id="monitorBackorderNotify" type="checkbox" checked> 域名过期后发送抢注提醒</label>
@@ -237,7 +250,7 @@ return item;}
 const ok=(text)=>toast(text,"ok");
 const fail=(action,error)=>toast(action+"失败："+((error&&error.message)||"未知错误"),"err");
 function fill(data){const s=data.settings;$("newUsername").value=s.username;$("telegramChatId").placeholder=s.telegram.chatId?`当前：${s.telegram.chatId}`:"未配置";$("telegramApiBase").value=s.telegram.apiBase||"https://api.telegram.org";$("telegramEnabled").checked=s.telegram.configured;$("summary").innerHTML=`<div class="summary-item"><b>${s.username}</b><span>当前用户</span></div><div class="summary-item"><b>${s.telegram.configured?"已启用":"未配置"}</b><span>Telegram</span></div><div class="summary-item"><b>${data.monitor.domains.length}</b><span>监控域名</span></div><div class="summary-item"><b>${data.monitor.checkTime}</b><span>检查时间</span></div>`;
-const c=data.monitorConfig||{};$("monitorDomains").value=c.domains||"";$("monitorRemindDays").value=c.remindDays??30;$("monitorCheckTime").value=c.checkTime||"09:00";$("monitorDailyRemind").checked=c.dailyRemind!==false;$("monitorBackorderNotify").checked=c.backorderNotify!==false;$("monitorRunOnStartup").checked=c.runOnStartup===true;$("configSource").textContent=c.source==="panel"?"设置面板":".env 文件";$("configUpdated").textContent=c.source==="panel"&&c.updatedAt?`最后保存：${new Date(c.updatedAt).toLocaleString()}`:"";}
+const c=data.monitorConfig||{};$("monitorDomains").value=c.domains||"";$("monitorRemindDays").value=c.remindDays??30;$("monitorCheckTime").value=c.checkTime||"09:00";$("monitorRefreshInterval").value=c.refreshInterval??60;$("monitorCacheTtl").value=c.cacheTtl??10;$("monitorDailyRemind").checked=c.dailyRemind!==false;$("monitorBackorderNotify").checked=c.backorderNotify!==false;$("monitorRunOnStartup").checked=c.runOnStartup===true;$("configSource").textContent=c.source==="panel"?"设置面板":".env 文件";$("configUpdated").textContent=c.source==="panel"&&c.updatedAt?`最后保存：${new Date(c.updatedAt).toLocaleString()}`:"";}
 async function load(){const response=await fetch("/api/settings");if(response.status===401){location.href="/login?next=/settings";return;}const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"加载失败");fill(data);await loadRdap();}
 function renderRdap(data){const r=data.rdap||{};const panel=r.panel&&Object.keys(r.panel).length?r.panel:r.effective||{};$("rdapJson").value=Object.keys(panel).length?JSON.stringify(panel,null,2):"";const parts=[`面板 ${r.counts?.panel??0} 条`];if(r.filePath){parts.push(`文件 ${r.counts?.file??0} 条（优先）`);parts.push(r.fileError?`文件异常：${r.fileError}`:`路径 ${r.filePath}`);}else{parts.push("未挂载外部文件");}parts.push(`生效 ${r.counts?.effective??0} 条`);$("rdapStatus").textContent=parts.join("　·　");}
 async function loadRdap(){try{const response=await fetch("/api/settings/rdap");if(response.status===401){location.href="/login?next=/settings";return;}const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"读取失败");renderRdap(data);}catch(error){$("rdapStatus").textContent="读取 RDAP 映射失败："+error.message;}}
@@ -246,7 +259,7 @@ $("rdapForm").addEventListener("submit",async(event)=>{event.preventDefault();le
 $("rdapReload").addEventListener("click",async()=>{const button=$("rdapReload");button.disabled=true;try{const response=await fetch("/api/settings/rdap",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({reload:true})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"载入失败");ok(data.message||"已从文件重新载入");await loadRdap();}catch(error){fail("从文件载入",error);}finally{button.disabled=false;}});
 $("rdapReset").addEventListener("click",async()=>{if(!confirm("确定清空设置面板中的 RDAP 映射？（外部文件层不受影响）"))return;const button=$("rdapReset");button.disabled=true;try{const response=await fetch("/api/settings/rdap",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({reset:true})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"清空失败");ok(data.message||"已清空面板配置");await loadRdap();}catch(error){fail("清空 RDAP 映射",error);}finally{button.disabled=false;}});
 $("credentials").addEventListener("submit",async(event)=>{event.preventDefault();if($("newPassword").value!==$("confirmPassword").value){fail("修改账号密码",new Error("两次输入的新密码不一致"));return;}const button=event.target.querySelector("button");button.disabled=true;try{const response=await fetch("/api/auth/change-credentials",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({currentPassword:$("currentPassword").value,username:$("newUsername").value,newPassword:$("newPassword").value})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"保存失败");ok("账号信息更新成功，请重新登录");setTimeout(()=>location.href="/login",1200);}catch(error){fail("修改账号密码",error);}finally{button.disabled=false;}});
-$("monitorForm").addEventListener("submit",async(event)=>{event.preventDefault();const button=event.target.querySelector('button[type=submit]');button.disabled=true;try{const response=await fetch("/api/settings/monitor",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({domains:$("monitorDomains").value,remindDays:Number($("monitorRemindDays").value),checkTime:$("monitorCheckTime").value.trim(),dailyRemind:$("monitorDailyRemind").checked,backorderNotify:$("monitorBackorderNotify").checked,runOnStartup:$("monitorRunOnStartup").checked})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"保存失败");ok(data.message||"监控设置保存成功，已立即生效");}catch(error){fail("保存监控设置",error);}finally{button.disabled=false;}load().catch(error=>toast("刷新页面数据失败："+error.message,"err"));});
+$("monitorForm").addEventListener("submit",async(event)=>{event.preventDefault();const button=event.target.querySelector('button[type=submit]');button.disabled=true;try{const response=await fetch("/api/settings/monitor",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({domains:$("monitorDomains").value,remindDays:Number($("monitorRemindDays").value),checkTime:$("monitorCheckTime").value.trim(),refreshInterval:Number($("monitorRefreshInterval").value),cacheTtl:Number($("monitorCacheTtl").value),dailyRemind:$("monitorDailyRemind").checked,backorderNotify:$("monitorBackorderNotify").checked,runOnStartup:$("monitorRunOnStartup").checked})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error?.message||"保存失败");ok(data.message||"监控设置保存成功，已立即生效");}catch(error){fail("保存监控设置",error);}finally{button.disabled=false;}load().catch(error=>toast("刷新页面数据失败："+error.message,"err"));});
 $("monitorClearRemind").addEventListener("click",async()=>{
   if(!confirm("确定清除提醒记录？清除后到期提醒和抢注提醒都会再发一次。"))return;
   const button=$("monitorClearRemind");button.disabled=true;

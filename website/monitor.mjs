@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fail, normalizeRefreshInterval } from "./auth.mjs";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Telegram 限流（429）重试：最多 3 次尝试，退避 1s → 2s，单次等待夹在 0.2–8s。
@@ -195,6 +196,17 @@ export class TelegramNotifier {
   }
 }
 
+/**
+ * 到期时间取值：检测到的优先，检测不到才用备注里手填的日期兜底。
+ * 手填值只存在 domainMeta 里，检测结果不写回那里，所以它不会被检测覆盖。
+ */
+function resolveExpiration(detected, note) {
+  const raw = detected ? String(detected).trim() : "";
+  if (raw) return { expiration: raw, manual: false };
+  const manual = String((note && note.expiration) || "").trim();
+  return manual ? { expiration: manual, manual: true } : { expiration: "", manual: false };
+}
+
 export function createMonitor({ config, domainWatch, notifier, dataDir, settingsStore = null, logger = console }) {
   const statePath = join(dataDir, "reminders.json");
 
@@ -205,12 +217,33 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, settings
   let dailyRemind = config.dailyRemind !== false;
   let backorderNotify = config.backorderNotify !== false;
   let runOnStartup = config.runOnStartup === true;
+  let refreshInterval = normalizeRefreshInterval(config.refreshInterval);
+  let cacheTtl = 10;
+  // 缓存时长是模块级状态，必须在 createMonitor 里就推给查询核心，
+  // 否则第一次查询会按默认值建缓存，设置面板里的值要等到下次重启才生效。
+  applyCacheTtl(config.cacheTtl);
   let configSource = config.source === "panel" ? "panel" : "env";
 
   let state = null;
   let running = false;
   let timer = null;
   let lastScheduledKey = "";
+
+  /** 把缓存时长推给查询核心；domainWatch 是注入的适配器，可能没有这几个方法 */
+  function applyCacheTtl(value) {
+    if (typeof domainWatch.setResultCacheTtlMinutes !== "function") {
+      cacheTtl = Number(value) > 0 ? Math.floor(Number(value)) : cacheTtl;
+      return;
+    }
+    cacheTtl = domainWatch.setResultCacheTtlMinutes(value);
+  }
+
+  /** 缓存现状，供监控页显示「缓存多久 / 何时重新查」 */
+  function cacheInfo() {
+    if (typeof domainWatch.getResultCacheInfo !== "function") return { cacheTtlMinutes: cacheTtl };
+    const info = domainWatch.getResultCacheInfo();
+    return { cacheTtlMinutes: info.ttlMinutes, cacheSize: info.size, cacheNextExpiryAt: info.nextExpiryAt };
+  }
 
   async function loadState() {
     if (state) return state;
@@ -280,12 +313,14 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, settings
       }
 
       const records = await loadState();
+      // 手填到期时间也要参与提醒判定，否则列表里显示了倒计时却永远不推送
+      const meta = settingsStore ? await settingsStore.getDomainMeta() : {};
       let changed = false;
 
       for (const domain of domains) {
         try {
-          const result = await domainWatch.queryDomain(domain);
-          const expiration = result.expiration ? String(result.expiration) : "";
+          const result = await domainWatch.queryDomain(domain, { fresh: true });
+          const { expiration } = resolveExpiration(result.expiration, meta[domain] || {});
           if (!expiration) {
             summary.skipped.push(`${domain}：无到期时间字段`);
             continue;
@@ -485,6 +520,8 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, settings
     if (next.dailyRemind !== undefined) dailyRemind = next.dailyRemind !== false;
     if (next.backorderNotify !== undefined) backorderNotify = next.backorderNotify !== false;
     if (next.runOnStartup !== undefined) runOnStartup = next.runOnStartup === true;
+    if (next.refreshInterval !== undefined) refreshInterval = normalizeRefreshInterval(next.refreshInterval);
+    if (next.cacheTtl !== undefined) applyCacheTtl(next.cacheTtl);
     if (next.checkTime !== undefined) {
       checkTime = parseCheckTime(next.checkTime);
       if (checkTime.text !== previous.checkTime) lastScheduledKey = "";
@@ -503,6 +540,8 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, settings
       dailyRemind,
       backorderNotify,
       runOnStartup,
+      refreshInterval,
+      cacheTtl,
       source: configSource,
     };
   }
@@ -530,36 +569,36 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, settings
     timer = null;
   }
 
-  async function snapshot() {
-    const records = await loadState();
-    const meta = settingsStore ? await settingsStore.getDomainMeta() : {};
-    const items = [];
-    const summary = { total: domains.length, ok: 0, expiring: 0, expired: 0, unknown: 0, failed: 0 };
-
-    for (const domain of domains) {
-      try {
-        const result = await domainWatch.queryDomain(domain);
-        const expiration = result.expiration ? String(result.expiration) : "";
-        const expirationMs = expiration ? Date.parse(expiration) : NaN;
-        const daysLeft = Number.isNaN(expirationMs) ? null : Math.ceil((expirationMs - Date.now()) / DAY_MS);
-        let state = "unknown";
-        if (daysLeft !== null) {
-          if (daysLeft < 0) state = "expired";
-          else if (daysLeft <= remindDays) state = "expiring";
-          else state = "ok";
-        }
-        const record = records[domain] || null;
-        if (state === "ok") summary.ok++;
-        else if (state === "expiring") summary.expiring++;
-        else if (state === "expired") summary.expired++;
-        else summary.unknown++;
-        const note = meta[domain] || {};
-        items.push({
+  /**
+   * 查一个域名并组装成监控列表里的一行。抽出来是为了让 snapshot() 和单行刷新
+   * 共用同一套逻辑——两边的到期时间兜底、备注回填必须一致，否则单行刷新会
+   * 显示出和整表不同的结果。
+   */
+  async function buildItem(domain, records, meta, fresh = false) {
+    const note = meta[domain] || {};
+    try {
+      const result = await domainWatch.queryDomain(domain, { fresh });
+      const { expiration, manual: expirationManual } = resolveExpiration(result.expiration, note);
+      const expirationMs = expiration ? Date.parse(expiration) : NaN;
+      const daysLeft = Number.isNaN(expirationMs) ? null : Math.ceil((expirationMs - Date.now()) / DAY_MS);
+      let state = "unknown";
+      if (daysLeft !== null) {
+        if (daysLeft < 0) state = "expired";
+        else if (daysLeft <= remindDays) state = "expiring";
+        else state = "ok";
+      }
+      const record = records[domain] || null;
+      return {
+        state,
+        item: {
           ok: true,
           domain,
           state,
           expiration: expiration || null,
           expirationDate: Number.isNaN(expirationMs) ? null : domainWatch.formatDate(expirationMs),
+          // 检测不到到期时间、正好吃的是手填值
+          expirationManual,
+          metaExpiration: note.expiration || "",
           daysLeft,
           source: result.source || null,
           registrar: result.registrar || null,
@@ -571,21 +610,41 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, settings
           vendor: note.vendor || "",
           vendorUrl: note.vendorUrl || "",
           registrarName: (result.registrar && result.registrar.name) || "",
-        });
-      } catch (error) {
-        summary.failed++;
-        const note = meta[domain] || {};
-        items.push({
+        },
+      };
+    } catch (error) {
+      return {
+        state: "failed",
+        item: {
           ok: false,
           domain,
           state: "failed",
           error: { code: error?.code || "unknown", message: error instanceof Error ? error.message : String(error) },
+          expirationManual: false,
+          metaExpiration: note.expiration || "",
           price: note.price || "",
           vendor: note.vendor || "",
           vendorUrl: note.vendorUrl || "",
           registrarName: "",
-        });
-      }
+        },
+      };
+    }
+  }
+
+  async function snapshot() {
+    const records = await loadState();
+    const meta = settingsStore ? await settingsStore.getDomainMeta() : {};
+    const items = [];
+    const summary = { total: domains.length, ok: 0, expiring: 0, expired: 0, unknown: 0, failed: 0 };
+
+    for (const domain of domains) {
+      const { state, item } = await buildItem(domain, records, meta, false);
+      if (state === "ok") summary.ok++;
+      else if (state === "expiring") summary.expiring++;
+      else if (state === "expired") summary.expired++;
+      else if (state === "failed") summary.failed++;
+      else summary.unknown++;
+      items.push(item);
     }
 
     return {
@@ -593,11 +652,62 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, settings
       checkedAt: new Date().toISOString(),
       checkTime: checkTime.text,
       remindDays,
+      // 前端据此决定多久自动刷新一次
+      refreshInterval,
+      ...cacheInfo(),
       configSource,
       telegramConfigured: notifier.configured,
       summary,
       items,
     };
+  }
+
+  /**
+   * 逐个域名产出结果，供 SSE 端点边查边推——前端因此能在第一个域名返回时就
+   * 显示第一行，而不是干等整表（8 个域名串行约 5 秒）。
+   * 刻意保持串行（和 snapshot() 一致）：并发打 RDAP/WHOIS 容易触发限流，
+   * 而且串行让到达顺序确定，前端才能按到达顺序逐行淡入。
+   * 每次 yield 都带上累计 summary，前端可以边收边更新统计数字。
+   */
+  async function* streamSnapshot() {
+    const records = await loadState();
+    const meta = settingsStore ? await settingsStore.getDomainMeta() : {};
+    const summary = { total: domains.length, ok: 0, expiring: 0, expired: 0, unknown: 0, failed: 0 };
+    for (const domain of domains) {
+      const { state, item } = await buildItem(domain, records, meta, false);
+      if (state === "ok") summary.ok++;
+      else if (state === "expiring") summary.expiring++;
+      else if (state === "expired") summary.expired++;
+      else if (state === "failed") summary.failed++;
+      else summary.unknown++;
+      yield { type: "item", item, summary: { ...summary } };
+    }
+    yield {
+      type: "done",
+      checkedAt: new Date().toISOString(),
+      checkTime: checkTime.text,
+      remindDays,
+      refreshInterval,
+      ...cacheInfo(),
+      configSource,
+      telegramConfigured: notifier.configured,
+      summary,
+    };
+  }
+
+  /**
+   * 只重查一个域名，给列表里的「刷新」用。比整表刷新快得多（RDAP 查询按秒计），
+   * 而且刻意不重算 summary、不发通知——它只是把这一行的数据换成最新的。
+   */
+  async function refreshDomain(domain) {
+    const key = String(domain || "").trim().toLowerCase();
+    if (!domains.includes(key)) {
+      throw fail("unknown_domain", `${key || domain} 不在监控列表中`);
+    }
+    const records = await loadState();
+    const meta = settingsStore ? await settingsStore.getDomainMeta() : {};
+    const { item } = await buildItem(key, records, meta, true);
+    return item;
   }
 
   function status() {
@@ -615,5 +725,5 @@ export function createMonitor({ config, domainWatch, notifier, dataDir, settings
     };
   }
 
-  return { check, snapshot, start, stop, status, applyConfig, currentConfig, forgetDomains, clearReminderFlags, pruneOrphans };
+  return { check, snapshot, streamSnapshot, refreshDomain, start, stop, status, applyConfig, currentConfig, forgetDomains, clearReminderFlags, pruneOrphans };
 }

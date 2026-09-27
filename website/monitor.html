@@ -38,10 +38,8 @@
   .nav { display: flex; align-items: stretch; }
   .nav-link { display: inline-flex; align-items: center; gap: 6px; padding: 0 20px; border-left: 1px solid var(--line); font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--black); background: none; text-decoration: none; cursor: pointer; transition: color 0.15s ease-out, background-color 0.15s ease-out, border-color 0.15s ease-out; }
   .nav-link:hover, .nav-link:focus-visible { color: var(--red); background: var(--wash); border-left-color: var(--red); }
-  .nav-link::after { content: "\2192"; }
   /* 按钮：方角、粗体、纯不透明度过渡；箭头是排版的一部分 */
   .button { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 22px; border: 1px solid var(--black); border-radius: 0; background: var(--black); color: var(--white); font-family: var(--sans); font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; text-decoration: none; cursor: pointer; transition: opacity 0.15s ease-out, color 0.15s ease-out, background-color 0.15s ease-out, border-color 0.15s ease-out; }
-  .button::after { content: "\2192"; }
   .button:hover, .button:focus-visible { opacity: 0.8; }
   .button:active { opacity: 0.7; }
   .button:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
@@ -122,6 +120,7 @@
   .card { margin-top: 40px; padding: 0; }
   .config-line { margin: 0 32px 20px; font-size: 13px; }
   .card-top { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; flex-wrap: wrap; padding: 24px 32px 12px; }
+  .updated-row { display: flex; align-items: baseline; gap: 10px; }
   h2 { font-size: 24px; }
   .add-form { display: flex; align-items: stretch; gap: 16px; flex-wrap: wrap; padding: 0 32px 24px; }
   .add-form input { flex: 1 1 260px; min-width: 0; }
@@ -134,14 +133,40 @@
   tbody tr.row-line:hover td:first-child { border-left-color: var(--red); }
   tbody tr.row-line:hover td:first-child b { color: var(--red); }
   .empty { padding: 40px 32px; color: var(--muted); }
+  /* 加载/刷新状态行：位于表头正上方，和表格同一套排版语言 */
+  .list-status { margin: 0; padding: 0 0 12px; font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); text-align: center; }
+  .list-status[hidden] { display: none; }
   .empty a { color: var(--black); text-decoration: underline; text-underline-offset: 3px; }
-  .meta-edit-row td { background: var(--wash); padding: 20px 0; }
+  /* 编辑行右侧留白：原来 padding 右侧是 0，「取消」按钮的右边框正好压在
+     colspan 单元格的内边上，看起来像两条线重叠。 */
+  .meta-edit-row td { background: var(--wash); padding: 20px 16px 20px 0; }
   .meta-form { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
   .meta-form > div { flex: 1 1 180px; min-width: 0; }
   .meta-form label { display: block; margin: 0 0 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--faint); }
   .meta-form input { min-height: 40px; }
-  .meta-actions { flex: 0 0 auto; display: flex; gap: 10px; }
-  .meta-actions .button { padding: 10px 16px; font-size: 11px; }
+  /* 保存/取消要和商家、续费价格一样大：display:contents 让两个按钮直接成为
+     .meta-form 的 flex 子项，于是和四个输入框共用同一条 flex:1 1 180px 规则。
+     高度靠照抄输入框的 padding/line-height 对齐——输入框的 min-height:40px 其实
+     不生效（内容 22.5 + padding 20 + border 2 已经超过它），只写 min-height 会矮一截。 */
+  .meta-actions { display: contents; }
+  .meta-actions .button { flex: 1 1 180px; min-width: 0; padding: 10px 12px; font-size: 15px; line-height: 1.5; }
+  /* 到期时间与「手填」标记必须同一行：表格单元格默认 white-space:normal，
+     列一窄就会在日期和标记之间断行，中文还可以任意处断。 */
+  td.nowrap { white-space: nowrap; }
+  /* 折叠列贴在「操作」右边，宽度和表头文字一致，按钮用 link-btn 无框样式 */
+  th.fold-col, td.fold-col { width: 1%; white-space: nowrap; }
+  /* 操作列三个动作固定排成一行：用 span + inline-flex 而不是再开一个 td，
+     否则会多出一列、把整张表的对齐弄乱。nowrap 保证列被压窄时也不换行。 */
+  .row-actions { display: inline-flex; align-items: center; gap: 12px; white-space: nowrap; }
+  #content.folded table tbody { display: none; }
+  /* 交错淡入：行按 --i 依次延迟 0.1s 从下方滑入，列表进入视口时才播。
+     播完移除 .animating，避免每 60 秒刷新都把已有内容闪一遍。 */
+  @keyframes row-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  /* 整表路径（降级）：按 --i 依次延迟入场 */
+  #content.animating tbody tr.row-line { animation: row-in 0.32s ease-out both; animation-delay: calc(var(--i, 0) * 0.1s); }
+  /* 流式路径：每收到一行就只播这一行，间隔由到达节奏决定（比固定 0.1s 更真实） */
+  tbody tr.row-line.row-enter { animation: row-in 0.32s ease-out both; }
+  #content.animating tbody tr.row-line:hover, tbody tr.row-line.row-enter:hover { animation: none; }
   @media (max-width: 860px) { .card-top, .add-form, .table-wrap, .empty { padding-left: 20px; padding-right: 20px; } .stat, .stat:first-child { border-left: 0; padding-left: 0; border-bottom: 1px solid var(--line); } }
 </style>
 </head>
@@ -172,15 +197,15 @@
     <div class="stat"><div class="stat-label">Telegram</div><div class="stat-value" id="telegram">—</div></div>
   </section>
   <section class="card">
-    <div class="card-top"><h2>监控列表</h2><div class="muted" id="updated">尚未刷新</div></div>
+    <div class="card-top"><h2>监控列表</h2><div class="updated-row"><div class="muted" id="updated">尚未刷新</div><div class="muted" id="nextRefresh" aria-live="off"></div><div class="muted" id="cacheNote" aria-live="off"></div></div></div>
     <p class="hint config-line" id="configLine"></p>
     <form class="add-form" id="addForm">
       <input id="addInput" type="text" placeholder="输入要添加的域名，例如 example.com" aria-label="要添加的域名" autocomplete="off" spellcheck="false">
       <button class="button" type="submit" id="addButton">添加域名</button>
     </form>
-    <div class="table-wrap"><div id="content" class="empty">正在加载…</div></div>
+    <div class="table-wrap" id="tableWrap"><div id="content" class="empty">正在加载…</div></div>
   </section>
-  <footer><span>Domain Watch</span><span>每 60 秒自动刷新</span></footer>
+  <footer><span>Domain Watch</span><span><span id="pollNote">每 60 秒自动刷新</span> <span id="cacheNoteFoot"></span></span></footer>
 </main>
 <script>
 "use strict";
@@ -207,6 +232,14 @@ let lastItems = [];
 const stateNames = { ok:"正常", expiring:"即将到期", expired:"已过期", unknown:"信息不完整", failed:"查询失败" };
 const stateClasses = { ok:"ok", expiring:"warn", expired:"err", unknown:"", failed:"err" };
 function esc(value) { return String(value ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+function showSummary(s, checkedAt) {
+  if (!s) return;
+  $("total").textContent = s.total ?? 0;
+  $("normal").textContent = s.ok ?? 0;
+  $("expiring").textContent = s.expiring ?? 0;
+  $("expired").textContent = s.expired ?? 0;
+  if (checkedAt) $("updated").textContent = "最后刷新：" + new Date(checkedAt).toLocaleString("zh-CN");
+}
 function setMessage(text, kind) { $("message").innerHTML = text ? `<span class="${esc(kind || "")}">${esc(text)}</span>` : ""; }
 /** 只接受 http(s)，防止手改 settings.json 塞进 javascript: 链接 */
 function safeUrl(url) {
@@ -225,8 +258,130 @@ function metaCells(item) {
   return `<td>${price}</td><td>${vendor}</td><td>${link}</td>`;
 }
 function daysText(item) { if (item.daysLeft === null || item.daysLeft === undefined) return "—"; if (item.daysLeft < 0) return `已过期 ${Math.abs(item.daysLeft)} 天`; if (item.daysLeft === 0) return "今天到期"; return `剩余 ${item.daysLeft} 天`; }
-function render(data) { const s=data.summary||{}; $("total").textContent=s.total??0; $("normal").textContent=s.ok??0; $("expiring").textContent=s.expiring??0; $("expired").textContent=s.expired??0; $("telegram").textContent=data.telegramConfigured?"已配置":"未配置"; $("telegram").className="stat-value "+(data.telegramConfigured?"ok":"warn"); $("updated").textContent=data.checkedAt?"最后刷新："+new Date(data.checkedAt).toLocaleString("zh-CN"):"尚未刷新"; $("configLine").textContent=`配置来源：${data.configSource==="panel"?"设置面板":".env 文件"}　·　每日检查 ${data.checkTime||"—"}　·　提醒窗口 ${data.remindDays??"—"} 天`; const items=data.items||[]; lastItems=items; if(!items.length){$("content").className="empty";$("content").innerHTML='没有配置监控域名，请到 <a href="/settings">设置页面</a> 填写。';return;} $("content").className=""; $("content").innerHTML="<table><thead><tr><th>域名</th><th class=\"status\">状态</th><th>到期时间</th><th>剩余时间</th><th>来源</th><th>续费价格</th><th>商家</th><th>商家网站</th><th>最近提醒</th><th>操作</th></tr></thead><tbody>"+items.map(item=>{if(!item.ok)return `<tr class="row-line" data-domain="${esc(item.domain)}"><td><b>${esc(item.domain)}</b></td><td class=\"status\"><span class="pill err">${esc(stateNames.failed)}</span></td><td colspan="4" class="err">${esc(item.error?.message||"查询失败")}</td>${metaCells(item)}<td><button class="link-btn" data-edit="${esc(item.domain)}" type="button">编辑</button> <button class="link-btn" data-remove="${esc(item.domain)}" type="button">移除</button></td></tr>`;const reminded=item.remindedAt?new Date(item.remindedAt).toLocaleString("zh-CN"):"—";return `<tr class="row-line" data-domain="${esc(item.domain)}"><td><b>${esc(item.domain)}</b></td><td class=\"status\"><span class="pill ${esc(stateClasses[item.state]||"")}">${esc(stateNames[item.state]||item.state)}</span></td><td>${esc(item.expirationDate||"—")}</td><td>${esc(daysText(item))}</td><td>${esc(item.source||"—")}</td>${metaCells(item)}<td class="muted">${esc(reminded)}</td><td><button class="link-btn" data-edit="${esc(item.domain)}" type="button">编辑</button> <button class="link-btn" data-remove="${esc(item.domain)}" type="button">移除</button></td></tr>`;}).join("")+"</tbody></table>"; }
-async function load() { $("refresh").disabled=true; try { const response=await fetch("/api/monitor",{headers:{Accept:"application/json"}}); if(response.status===401){location.href="/login?next=/monitor";return;} const data=await response.json(); if(!response.ok||data.ok===false&&data.error)throw new Error(data.error.message||"加载失败"); render(data); setMessage(""); } catch(error) { $("content").className="empty err"; $("content").textContent="加载失败："+error.message; fail("加载监控数据",new Error(error.message)); } finally { $("refresh").disabled=false; } }
+/** 监控列表的一行。抽成函数是为了让整表渲染和单行「刷新」共用同一份模板，
+    否则单行刷新出来的行会和整表对不上。 */
+function rowHtml(item, index) {
+  const i = Number.isInteger(index) ? index : 0;
+  if (!item.ok) return `<tr class="row-line" style="--i:${i}" data-domain="${esc(item.domain)}"><td><b>${esc(item.domain)}</b></td><td class=\"status\"><span class="pill err">${esc(stateNames.failed)}</span></td><td colspan="4" class="err">${esc(item.error?.message||"查询失败")}</td>${metaCells(item)}<td><span class="row-actions"><button class="link-btn" data-edit="${esc(item.domain)}" type="button">编辑</button><button class="link-btn" data-remove="${esc(item.domain)}" type="button">移除</button><button class="link-btn" data-refresh="${esc(item.domain)}" type="button">刷新</button></span></td><td class="fold-col"></td></tr>`;
+  const reminded = item.remindedAt ? new Date(item.remindedAt).toLocaleString("zh-CN") : "—";
+  return `<tr class="row-line" style="--i:${i}" data-domain="${esc(item.domain)}"><td><b>${esc(item.domain)}</b></td><td class=\"status\"><span class="pill ${esc(stateClasses[item.state]||"")}">${esc(stateNames[item.state]||item.state)}</span></td><td class="nowrap">${esc(item.expirationDate||"—")}${item.expirationManual?'<span class="muted"> 手填</span>':""}</td><td>${esc(daysText(item))}</td><td>${esc(item.source||"—")}</td>${metaCells(item)}<td class="muted">${esc(reminded)}</td><td><span class="row-actions"><button class="link-btn" data-edit="${esc(item.domain)}" type="button">编辑</button><button class="link-btn" data-remove="${esc(item.domain)}" type="button">移除</button><button class="link-btn" data-refresh="${esc(item.domain)}" type="button">刷新</button></span></td><td class="fold-col"></td></tr>`;
+}
+const TABLE_HEAD = "<table><thead><tr><th>域名</th><th class=\"status\">状态</th><th>到期时间</th><th>剩余时间</th><th>来源</th><th>续费价格</th><th>商家</th><th>商家网站</th><th>最近提醒</th><th>操作</th><th class=\"fold-col\"><button class=\"link-btn\" id=\"toggleList\" type=\"button\" aria-expanded=\"true\">折叠</button></th></tr></thead><tbody>";
+/**
+ * 表壳：状态行 + 表头 + 空 tbody。首屏就先渲染出来，于是「正在加载…」出现在
+ * 表头**上面**，而不是把整块内容换成一句提示——表头不会在加载时闪没。
+ * 已经建过就直接返回 tbody，不重复建。
+ */
+function ensureTableShell() {
+  const existing = $("content").querySelector("tbody");
+  if (existing) return existing;
+  $("content").className = "";
+  $("content").innerHTML = '<p class="list-status" id="listStatus" hidden></p>' + TABLE_HEAD + "</tbody></table>";
+  return $("content").querySelector("tbody");
+}
+/** 传空字符串即隐藏。首屏显示「正在加载…」，之后每次刷新显示「正在刷新中」。 */
+function setListStatus(text) {
+  const el = $("listStatus");
+  if (!el) return;
+  el.textContent = text || "";
+  el.hidden = !text;
+}
+function render(data) { const s=data.summary||{}; $("total").textContent=s.total??0; $("normal").textContent=s.ok??0; $("expiring").textContent=s.expiring??0; $("expired").textContent=s.expired??0; $("telegram").textContent=data.telegramConfigured?"已配置":"未配置"; $("telegram").className="stat-value "+(data.telegramConfigured?"ok":"warn"); $("updated").textContent=data.checkedAt?"最后刷新："+new Date(data.checkedAt).toLocaleString("zh-CN"):"尚未刷新"; $("configLine").textContent=`配置来源：${data.configSource==="panel"?"设置面板":".env 文件"}　·　每日检查 ${data.checkTime||"—"}　·　提醒窗口 ${data.remindDays??"—"} 天`; const items=data.items||[]; lastItems=items; if(!items.length){$("content").className="empty";$("content").innerHTML='没有配置监控域名，请到 <a href="/settings">设置页面</a> 填写。';return;} $("content").className=""; $("content").innerHTML='<p class="list-status" id="listStatus" hidden></p>'+TABLE_HEAD+items.map(rowHtml).join("")+"</tbody></table>"; }
+/**
+ * 流式加载：/api/monitor/stream 每查完一个域名就推一条，收到就立刻插一行并淡入，
+ * 不用等整表（约 5 秒）。统计数字也跟着逐条累加显示。
+ * 降级：没有 EventSource、或流中途断开时，退回一次性的 /api/monitor。
+ */
+function loadStream() {
+  return new Promise((resolve) => {
+    let source;
+    let opened = false;      // 是否已经建过表壳（第一行到达前仍显示「正在加载…」）
+    let settled = false;
+    const finish = (fallback) => {
+      if (settled) return;
+      settled = true;
+      try { source.close(); } catch {}
+      if (fallback) loadOnce().then(resolve, resolve);
+      else resolve();
+    };
+    const ensureShell = () => {
+      if (opened) return $("content").querySelector("tbody");
+      opened = true;
+      const tbody = ensureTableShell();
+      applyFold();
+      return tbody;
+    };
+    try {
+      source = new EventSource("/api/monitor/stream");
+    } catch {
+      finish(true);
+      return;
+    }
+    source.onmessage = (message) => {
+      let event;
+      try { event = JSON.parse(message.data); } catch { return; }
+      if (event.type === "item") {
+        const tbody = ensureShell();
+        const domain = event.item.domain;
+        // 同域名**就地替换**而不是追加：刷新时旧行要留在屏幕上（不闪空），
+        // 直接 insertAdjacentHTML 会让每次刷新行数翻倍。
+        // 用 :not(.meta-edit-row) 排除编辑行——它也带 data-domain。
+        const selector = `tr.row-line[data-domain="${CSS.escape(domain)}"]:not(.meta-edit-row)`;
+        const existing = tbody.querySelector(selector);
+        if (existing) existing.outerHTML = rowHtml(event.item, lastItems.length);
+        else tbody.insertAdjacentHTML("beforeend", rowHtml(event.item, lastItems.length));
+        lastItems.push(event.item);
+        showSummary(event.summary, null);
+        // 只让刚到的这一行淡入：用行级 .row-enter，播完自己摘掉。
+        // 不能靠容器 .animating——那会让先到的行跟着重新播一遍。
+        const row = tbody.querySelector(selector);
+        if (row) {
+          row.classList.add("row-enter");
+          const done = () => row.classList.remove("row-enter");
+          row.addEventListener("animationend", done, { once: true });
+          // 兜底：prefers-reduced-motion 下动画被全局关掉，animationend 不会触发
+          setTimeout(done, 500);
+        }
+      } else if (event.type === "done") {
+        // 本轮没回来的域名（已被移除监控）要清掉，否则会一直留在表里
+        const seen = new Set(lastItems.map((entry) => entry.domain));
+        for (const row of [...$("content").querySelectorAll("tbody tr.row-line[data-domain]:not(.meta-edit-row)")]) {
+          if (!seen.has(row.dataset.domain)) row.remove();
+        }
+        showSummary(event.summary, event.checkedAt);
+        $("configLine").textContent = `配置来源：${event.configSource === "panel" ? "设置面板" : ".env 文件"}　·　每日检查 ${event.checkTime || "—"}　·　提醒窗口 ${event.remindDays ?? "—"} 天`;
+        $("telegram").textContent = event.telegramConfigured ? "已配置" : "未配置";
+        $("telegram").className = "stat-value " + (event.telegramConfigured ? "ok" : "warn");
+        applyPollInterval(event.refreshInterval);
+        applyCacheInfo(event);
+        reattachEditRow();
+        finish(false);
+      } else if (event.type === "error") {
+        finish(opened ? false : true);
+      }
+    };
+    // EventSource 断线会自己重连；这里只处理「一次都没成功」的情况，避免死循环
+    source.onerror = () => finish(opened ? false : true);
+  });
+}
+
+/** 一次性加载（SSE 不可用时的降级路径）：整表拿到后一次性渲染 + 交错淡入 */
+async function loadOnce() { $("refresh").disabled=true; try { const response=await fetch("/api/monitor",{headers:{Accept:"application/json"}}); if(response.status===401){location.href="/login?next=/monitor";return;} const data=await response.json(); if(!response.ok||data.ok===false&&data.error)throw new Error(data.error.message||"加载失败"); render(data); reattachEditRow(); animateRowsIn(); applyPollInterval(data.refreshInterval); applyCacheInfo(data); applyFold(); setMessage(""); } catch(error) { $("content").className="empty err"; $("content").textContent="加载失败："+error.message; fail("加载监控数据",new Error(error.message)); } finally { $("refresh").disabled=false; } }
+
+/** 整表加载入口：优先走流式，逐行显示；不可用时退回一次性 */
+async function load() {
+  // 已有数据 -> 这是刷新（正在刷新中）；否则是首屏（正在加载…）
+  const refreshing = $("content").querySelectorAll("tbody tr.row-line").length > 0;
+  lastItems = [];
+  ensureTableShell();
+  setListStatus(refreshing ? "正在刷新中" : "正在加载…");
+  // 从这一刻起算，一个 pollMs 之后是下一次自动刷新
+  nextRefreshAt = Date.now() + pollMs;
+  startCountdown();
+  try { await loadStream(); }
+  catch (error) { $("content").className = "empty err"; $("content").textContent = "加载失败：" + error.message; fail("加载监控数据", new Error(error.message)); }
+  finally { setListStatus(""); $("refresh").disabled = false; }
+}
 async function post(path,label) { const button=path.includes("check")?$("check"):$("test"); button.disabled=true; try { const response=await fetch(path,{method:"POST"}); if(response.status===401){location.href="/login?next=/monitor";return;} const data=await response.json().catch(()=>null);
   // 检查接口返回的是**结果**（含 summary / checked），不是错误信封。
   // 逐域名失败要如实展示，不能因为 ok=false 就抛成「操作失败」把细节全丢掉。
@@ -267,6 +422,7 @@ $("addForm").addEventListener("submit", async (event) => {
 });
 function closeEditRows() {
   for (const row of $("content").querySelectorAll("tr.meta-edit-row")) row.remove();
+  editingRow = null;
 }
 /** 在目标行后面插入一行备注编辑表单 */
 function openEditRow(domain) {
@@ -275,24 +431,46 @@ function openEditRow(domain) {
   if (!item) return;
   const row = document.createElement("tr");
   row.className = "meta-edit-row row-line";
+  row.dataset.domain = domain;
   const vendorHost = item.vendorUrl ? metaHost(item.vendorUrl) : "";
-  row.innerHTML = `<td colspan="10"><div class="meta-form">
+  // 有检测值就提示检测值，没有就提示格式；value 只回填手填值，
+  // 免得保存一次就把检测到的日期固化成「手填」。
+  const expHint = item.expirationDate ? `检测到 ${item.expirationDate}` : "YYYY-MM-DD，检测不到时用";
+  row.innerHTML = `<td colspan="11"><div class="meta-form">
+    <div><label for="m-exp-${esc(domain)}">到期时间</label><input id="m-exp-${esc(domain)}" type="text" placeholder="${esc(expHint)}" value="${esc(item.metaExpiration || "")}"></div>
     <div><label for="m-price-${esc(domain)}">续费价格</label><input id="m-price-${esc(domain)}" type="text" placeholder="例如 ¥85 / 年" value="${esc(item.price || "")}"></div>
     <div><label for="m-vendor-${esc(domain)}">商家</label><input id="m-vendor-${esc(domain)}" type="text" placeholder="留空则显示注册商名" value="${esc(item.vendor || "")}"></div>
     <div><label for="m-url-${esc(domain)}">商家网站</label><input id="m-url-${esc(domain)}" type="text" placeholder="例如 dash.cloudflare.com" value="${esc(vendorHost)}"></div>
     <div class="meta-actions"><button class="button" data-save="${esc(domain)}" type="button">保存</button><button class="button secondary" data-cancel="1" type="button">取消</button></div>
   </div></td>`;
-  const anchor = $("content").querySelector(`tr[data-domain="${CSS.escape(domain)}"]`);
+  const anchor = $("content").querySelector(`tr.row-line[data-domain="${CSS.escape(domain)}"]:not(.meta-edit-row)`);
   if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(row, anchor.nextSibling);
+  editingRow = row;
+}
+/**
+ * 把正在编辑的那一行在重绘后放回原位。
+ * render() 整体替换 #content.innerHTML，编辑行连同里面没保存的输入一起被冲掉；
+ * 引用还留在 editingRow 上，所以重绘后按域名重新插到对应行后面即可，输入内容因此得以保留。
+ * 注意别用 isConnected 判断：innerHTML 替换本身就会让它变成未连接。
+ */
+function reattachEditRow() {
+  const keep = editingRow;
+  if (!keep) return;
+  const domain = keep.dataset.domain;
+  // 用 :not(.meta-edit-row) 排除编辑行自己——它也带 data-domain
+  const anchor = $("content").querySelector(`tr.row-line[data-domain="${CSS.escape(domain)}"]:not(.meta-edit-row)`);
+  if (!anchor || !anchor.parentNode) { editingRow = null; return; }  // 域名已被移除
+  anchor.parentNode.insertBefore(keep, anchor.nextSibling);
 }
 async function saveMeta(domain) {
+  const metaExpiration = ($(`m-exp-${domain}`) || {}).value || "";
   const price = ($(`m-price-${domain}`) || {}).value || "";
   const vendor = ($(`m-vendor-${domain}`) || {}).value || "";
   const vendorUrl = ($(`m-url-${domain}`) || {}).value || "";
   const response = await fetch("/api/settings/domain-meta", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ set: { [domain]: { price, vendor, vendorUrl } } }),
+    body: JSON.stringify({ set: { [domain]: { expiration: metaExpiration, price, vendor, vendorUrl } } }),
   });
   if (response.status === 401) { location.href = "/login?next=/monitor"; return; }
   const data = await response.json();
@@ -301,7 +479,135 @@ async function saveMeta(domain) {
   closeEditRows();
   await load();
 }
+/* 折叠/展开监控列表。按钮在表头里，所以只藏 tbody —— 按钮得留在表头才能再展开。
+   render() 每 60 秒把整张表连按钮一起重建，因此点击走 #content 事件委托（重绘后依然有效），
+   折叠态放在变量里、每次 load() 渲染完再套回 #content（render 会重置它的 className）。 */
+const FOLD_KEY = "dw-list-folded";
+let listFolded = false;
+/** 正在编辑的那一行；跨重绘保留，见 reattachEditRow() */
+let editingRow = null;
+function applyFold() {
+  $("content").classList.toggle("folded", listFolded);
+  const button = $("toggleList");
+  if (!button) return;
+  button.textContent = listFolded ? "展开" : "折叠";
+  button.setAttribute("aria-expanded", listFolded ? "false" : "true");
+}
+try { listFolded = localStorage.getItem(FOLD_KEY) === "1"; } catch {}
+function toggleFold() {
+  listFolded = !listFolded;
+  try { localStorage.setItem(FOLD_KEY, listFolded ? "1" : "0"); } catch {}
+  applyFold();
+}
+/** 单行刷新：只重查这一个域名（服务端不重算统计、不发通知），然后就地换掉这一行 */
+async function refreshRow(domain, button) {
+  button.disabled = true;
+  const label = button.textContent;
+  button.textContent = "刷新中";
+  try {
+    const response = await fetch("/api/monitor/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain }),
+    });
+    if (response.status === 401) { location.href = "/login?next=/monitor"; return; }
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.error?.message || "刷新失败");
+    const row = $("content").querySelector(`tr[data-domain="${CSS.escape(domain)}"]`);
+    if (row) row.outerHTML = rowHtml(data.item);
+    // 统计数字没重算，只更新「最后刷新」时间，避免整表重绘把编辑行冲掉
+    $("updated").textContent = "最后刷新：" + new Date().toLocaleString("zh-CN");
+    ok(domain + " 已刷新");
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = label;
+    setMessage("刷新 " + domain + " 失败：" + error.message, "err");
+    fail("刷新域名", new Error(error.message));
+  }
+}
+/**
+ * 交错淡入：列表进入视口后，各行按 --i 依次延迟 0.1s 从下方滑入。
+ * 播完就摘掉 .animating，否则每 60 秒自动刷新都会把已经看过的行再闪一遍。
+ */
+const STAGGER_STEP_MS = 100;
+let staggerTimer = null;
+function animateRowsIn() {
+  const tbody = $("content").querySelector("tbody");
+  if (!tbody) return;
+  const play = () => {
+    $("content").classList.add("animating");
+    clearTimeout(staggerTimer);
+    const rows = tbody.querySelectorAll("tr.row-line").length;
+    staggerTimer = setTimeout(() => $("content").classList.remove("animating"), rows * STAGGER_STEP_MS + 400);
+  };
+  if (typeof IntersectionObserver !== "function") { play(); return; }
+  const io = new IntersectionObserver((entries) => {
+    if (!entries.some((entry) => entry.isIntersecting)) return;
+    io.disconnect();
+    play();
+  }, { threshold: 0.01 });
+  io.observe(tbody);
+}
+
+/** 自动刷新间隔由设置面板的「刷新间隔」决定，改完即时生效 */
+let pollMs = 60000;
+let pollTimer = null;
+let nextRefreshAt = 0;
+let countdownTimer = null;
+/** 查询缓存状态：时长（分钟）与最早过期时刻，用于「多久后重新查」的倒计时 */
+let cacheTtlMinutes = 10;
+let cacheNextExpiryAt = null;
+
+/** 毫秒 → 「45 秒」/「3 分 20 秒」/「1 小时 5 分」 */
+function humanDuration(ms) {
+  const total = Math.max(0, Math.round(ms / 1000));
+  if (total < 60) return total + " 秒";
+  const min = Math.floor(total / 60);
+  if (min < 60) return min + " 分" + (total % 60 ? " " + (total % 60) + " 秒" : "");
+  return Math.floor(min / 60) + " 小时" + (min % 60 ? " " + (min % 60) + " 分" : "");
+}
+/** 缓存说明同时显示在表头右侧与页脚；left 为 null 时只显示时长 */
+function renderCacheNote() {
+  const label = "缓存 " + cacheTtlMinutes + " 分钟";
+  const left = cacheNextExpiryAt === null ? null : Math.max(0, cacheNextExpiryAt - Date.now());
+  const text = left === null ? label : label + " · " + humanDuration(left) + "后重查";
+  const top = $("cacheNote");
+  const foot = $("cacheNoteFoot");
+  if (top) top.textContent = text;
+  if (foot) foot.textContent = "· " + text;
+}
+function applyCacheInfo(info) {
+  if (!info) return;
+  if (Number.isFinite(info.cacheTtlMinutes)) cacheTtlMinutes = info.cacheTtlMinutes;
+  cacheNextExpiryAt = Number.isFinite(info.cacheNextExpiryAt) ? info.cacheNextExpiryAt : null;
+  renderCacheNote();
+}
+/** 距离下次自动刷新还有多少秒，显示在「最后刷新」右边 */
+function startCountdown() {
+  clearInterval(countdownTimer);
+  const tick = () => {
+    const el = $("nextRefresh");
+    if (!el) return;
+    const left = Math.max(0, Math.round((nextRefreshAt - Date.now()) / 1000));
+    el.textContent = left > 0 ? left + " 秒后刷新" : "刷新中…";
+    renderCacheNote();
+  };
+  tick();
+  countdownTimer = setInterval(tick, 1000);
+}
+function applyPollInterval(seconds) {
+  const next = Math.max(10, Math.min(3600, Number(seconds) || 60)) * 1000;
+  $("pollNote").textContent = `每 ${Math.round(next / 1000)} 秒自动刷新`;
+  if (next === pollMs && pollTimer !== null) return;
+  pollMs = next;
+  clearInterval(pollTimer);
+  pollTimer = setInterval(load, pollMs);
+  // 间隔真的变了才重算倒计时，否则每轮 load 都会把倒计时弹回满格
+  nextRefreshAt = Date.now() + next;
+  startCountdown();
+}
 $("content").addEventListener("click", async (event) => {
+  if (event.target.closest("#toggleList")) { toggleFold(); return; }
   const edit = event.target.closest("[data-edit]");
   if (edit) { openEditRow(edit.getAttribute("data-edit")); return; }
   const cancel = event.target.closest("[data-cancel]");
@@ -311,10 +617,12 @@ $("content").addEventListener("click", async (event) => {
     const domain = save.getAttribute("data-save");
     save.disabled = true;
     try { await saveMeta(domain); }
-    catch (error) { save.disabled = false; fail("保存域名备注", error); }
+    catch (error) { save.disabled = false; setMessage("保存域名备注失败：" + error.message, "err"); fail("保存域名备注", error); }
     return;
   }
   const target = event.target.closest("[data-remove]");
+  const refresher = event.target.closest("[data-refresh]");
+  if (refresher) { await refreshRow(refresher.getAttribute("data-refresh"), refresher); return; }
   if (!target) return;
   const domain = target.getAttribute("data-remove");
   if (!confirm("确定不再监控 " + domain + "？")) return;
@@ -322,7 +630,9 @@ $("content").addEventListener("click", async (event) => {
   try { await changeDomains({ remove: domain }); }
   catch (error) { target.disabled = false; fail("移除域名", error); }
 });
-$("logout").addEventListener("click",async()=>{await fetch("/api/auth/logout",{method:"POST"});location.href="/login";}); load(); setInterval(load,60000);
-</script>
+$("logout").addEventListener("click",async()=>{await fetch("/api/auth/logout",{method:"POST"});location.href="/login";});
+applyFold();
+applyPollInterval(60);
+load();</script>
 </body>
 </html>
